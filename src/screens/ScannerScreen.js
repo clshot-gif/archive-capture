@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import NetInfo from '@react-native-community/netinfo';
 import * as StorageService from '../services/StorageService';
 import * as UploadQueueService from '../services/UploadQueueService';
 import * as DriveService from '../services/DriveService';
@@ -18,6 +19,20 @@ export default function ScannerScreen({ route, navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [project, setProject] = useState(null);
   const cameraRef = useRef(null);
+  const projectRef = useRef(null);
+
+  // Restore box/folder on mount
+  useEffect(() => {
+    StorageService.loadBoxFolder().then(({ box: b, folder: f }) => {
+      if (b) setBox(b);
+      if (f) setFolder(f);
+    });
+  }, []);
+
+  // Persist box/folder whenever they change
+  useEffect(() => {
+    StorageService.saveBoxFolder({ box, folder });
+  }, [box, folder]);
 
   useEffect(() => {
     loadState();
@@ -25,7 +40,13 @@ export default function ScannerScreen({ route, navigation }) {
       loadState();
       refreshQueue();
     });
-    return unsub;
+    const netUnsub = NetInfo.addEventListener((state) => {
+      if (state.isConnected && projectRef.current) {
+        UploadQueueService.processQueue(projectRef.current.driveFolderId)
+          .then(() => refreshQueue());
+      }
+    });
+    return () => { unsub(); netUnsub(); };
   }, [navigation]);
 
   // Auto-open camera when returning from MarkupScreen via Keep Scanning
@@ -38,6 +59,7 @@ export default function ScannerScreen({ route, navigation }) {
   async function loadState() {
     const proj = await StorageService.loadProject();
     setProject(proj);
+    projectRef.current = proj;
     try {
       const { accessToken } = await GoogleSignin.getTokens();
       DriveService.setAccessToken(accessToken);

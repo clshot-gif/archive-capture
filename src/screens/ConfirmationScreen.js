@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
+import NetInfo from '@react-native-community/netinfo';
 import * as StorageService from '../services/StorageService';
 import * as DriveService from '../services/DriveService';
 
@@ -119,17 +120,16 @@ export default function ConfirmationScreen({ route, navigation }) {
       };
 
       const folderId = project?.driveFolderId;
-      let queued = false;
+      const netState = await NetInfo.fetch();
 
-      try {
-        await DriveService.uploadPDF({ localPath, filename, folderId, metadata });
-      } catch (_) {
+      if (netState.isConnected) {
+        try {
+          await DriveService.uploadPDF({ localPath, filename, folderId, metadata });
+        } catch (_) {
+          await StorageService.addToQueue({ localPath, filename, folderId, metadata });
+        }
+      } else {
         await StorageService.addToQueue({ localPath, filename, folderId, metadata });
-        queued = true;
-      }
-
-      if (queued) {
-        Alert.alert('Saved locally', "No internet connection. Document will sync to Google Drive when you're back online.", [{ text: 'OK' }]);
       }
 
       navigation.navigate('Scanner', { pages: [] });

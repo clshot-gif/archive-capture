@@ -6,6 +6,7 @@ const KEYS = {
   COUNTER: 'file_counter',
   UPLOAD_QUEUE: 'upload_queue',
   SIGNED_IN: 'signed_in',
+  BOX_FOLDER: 'box_folder',
 };
 
 // ─── Project State ────────────────────────────────────────────────────────────
@@ -76,6 +77,17 @@ export async function saveSignedIn(value) {
 export async function loadSignedIn() {
   const raw = await AsyncStorage.getItem(KEYS.SIGNED_IN);
   return raw === 'true';
+}
+
+// ─── Box / Folder Persistence ─────────────────────────────────────────────────
+
+export async function saveBoxFolder({ box, folder }) {
+  await AsyncStorage.setItem(KEYS.BOX_FOLDER, JSON.stringify({ box, folder }));
+}
+
+export async function loadBoxFolder() {
+  const raw = await AsyncStorage.getItem(KEYS.BOX_FOLDER);
+  return raw ? JSON.parse(raw) : { box: '', folder: '' };
 }
 
 // ─── Reset (dev/debug) ────────────────────────────────────────────────────────
