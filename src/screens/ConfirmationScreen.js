@@ -4,7 +4,7 @@ import {
   StyleSheet, Alert, ActivityIndicator,
 } from 'react-native';
 import * as Print from 'expo-print';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as StorageService from '../services/StorageService';
 import * as DriveService from '../services/DriveService';
 
