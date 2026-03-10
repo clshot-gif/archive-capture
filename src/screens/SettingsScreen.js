@@ -1,26 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Linking,
+  View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView,
+  Linking, TextInput, ActivityIndicator,
 } from 'react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as StorageService from '../services/StorageService';
 import * as DriveService from '../services/DriveService';
-import Config from '../config/Config';
 
 export default function SettingsScreen({ navigation }) {
-  const [project, setProject] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newArchiveName, setNewArchiveName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(async () => {
+    const [list, activeId, isIn] = await Promise.all([
+      StorageService.loadProjectsList(),
+      StorageService.loadActiveProjectId(),
+      StorageService.loadSignedIn(),
+    ]);
+    setProjects(list);
+    setActiveProjectId(activeId);
+    setSignedIn(isIn);
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
-
-  async function load() {
-    const proj = await StorageService.loadProject();
-    const isIn = await StorageService.loadSignedIn();
-    setProject(proj);
-    setSignedIn(isIn);
-  }
+    const unsub = navigation.addListener('focus', load);
+    return unsub;
+  }, [navigation, load]);
 
   async function handleReconnect() {
     try {
@@ -36,11 +47,49 @@ export default function SettingsScreen({ navigation }) {
     }
   }
 
-  function openDriveFolder() {
-    if (project?.driveFolderId) {
-      Linking.openURL(`https://drive.google.com/drive/folders/${project.driveFolderId}`);
+  async function handleSwitchProject(id) {
+    await StorageService.saveActiveProjectId(id);
+    setActiveProjectId(id);
+  }
+
+  async function handleCreateProject() {
+    if (!newName.trim()) {
+      Alert.alert('Required', 'Please enter a project name.');
+      return;
+    }
+    setCreating(true);
+    try {
+      const folder = await DriveService.findOrCreateFolder(newName.trim());
+      const project = {
+        id: Date.now().toString(),
+        name: newName.trim(),
+        archiveName: newArchiveName.trim(),
+        driveFolderId: folder.id,
+        driveFolderName: folder.name,
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [...projects, project];
+      await StorageService.saveProjectsList(updated);
+      await StorageService.saveActiveProjectId(project.id);
+      setProjects(updated);
+      setActiveProjectId(project.id);
+      setNewName('');
+      setNewArchiveName('');
+      setShowNewForm(false);
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setCreating(false);
     }
   }
+
+  function openDriveFolder(folderId) {
+    if (folderId) {
+      Linking.openURL(`https://drive.google.com/drive/folders/${folderId}`);
+    }
+  }
+
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   return (
     <ScrollView style={styles.container}>
@@ -61,17 +110,79 @@ export default function SettingsScreen({ navigation }) {
         </TouchableOpacity>
       </Section>
 
-      <Section title="Project Info">
-        <InfoRow label="Collection" value={project?.collectionName} />
-        <InfoRow label="Research Question" value={project?.researchQuestion} multiline />
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Drive Folder</Text>
-          <TouchableOpacity onPress={openDriveFolder}>
-            <Text style={[styles.rowValue, styles.link]} numberOfLines={1}>
-              {project?.driveFolderName || '—'}
-            </Text>
+      <Section title="Projects">
+        {projects.map((p) => {
+          const isActive = p.id === activeProjectId;
+          return (
+            <TouchableOpacity
+              key={p.id}
+              style={styles.row}
+              onPress={() => !isActive && handleSwitchProject(p.id)}
+              activeOpacity={isActive ? 1 : 0.7}
+            >
+              <View style={styles.projectIndicatorWrap}>
+                <View style={[styles.indicator, isActive && styles.indicatorActive]} />
+              </View>
+              <View style={styles.projectInfo}>
+                <Text style={[styles.projectName, isActive && styles.projectNameActive]}>
+                  {p.name}
+                </Text>
+                {p.archiveName ? (
+                  <Text style={styles.projectMeta}>{p.archiveName}</Text>
+                ) : null}
+              </View>
+              {isActive && activeProject?.driveFolderId ? (
+                <TouchableOpacity onPress={() => openDriveFolder(activeProject.driveFolderId)}>
+                  <Text style={styles.folderLink}>Drive ›</Text>
+                </TouchableOpacity>
+              ) : null}
+            </TouchableOpacity>
+          );
+        })}
+
+        {showNewForm ? (
+          <View style={styles.newFormContainer}>
+            <TextInput
+              style={styles.newFormInput}
+              placeholder="Project name"
+              value={newName}
+              onChangeText={setNewName}
+              returnKeyType="next"
+              autoFocus
+            />
+            <TextInput
+              style={[styles.newFormInput, { marginTop: 8 }]}
+              placeholder="Archive name (optional)"
+              value={newArchiveName}
+              onChangeText={setNewArchiveName}
+              returnKeyType="done"
+              onSubmitEditing={handleCreateProject}
+            />
+            <View style={styles.newFormActions}>
+              <TouchableOpacity
+                style={styles.cancelFormBtn}
+                onPress={() => { setShowNewForm(false); setNewName(''); setNewArchiveName(''); }}
+              >
+                <Text style={styles.cancelFormText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.createBtn, creating && styles.disabledBtn]}
+                onPress={handleCreateProject}
+                disabled={creating}
+              >
+                {creating ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.createBtnText}>Create</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity style={styles.row} onPress={() => setShowNewForm(true)}>
+            <Text style={styles.addProjectText}>+ New Project</Text>
           </TouchableOpacity>
-        </View>
+        )}
       </Section>
 
       <Section title="Google Drive">
@@ -95,14 +206,11 @@ function Section({ title, children }) {
   );
 }
 
-function InfoRow({ label, value, multiline }) {
+function InfoRow({ label, value }) {
   return (
-    <View style={[styles.row, multiline && { alignItems: 'flex-start', paddingVertical: 12 }]}>
+    <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text
-        style={[styles.rowValue, multiline && { flexShrink: 1, textAlign: 'right' }]}
-        numberOfLines={multiline ? 4 : 1}
-      >
+      <Text style={styles.rowValue} numberOfLines={1}>
         {value || '—'}
       </Text>
     </View>
@@ -138,6 +246,65 @@ const styles = StyleSheet.create({
   link: { color: '#1565C0', textDecorationLine: 'underline' },
   actionRow: { backgroundColor: '#fff' },
   actionRowText: { color: '#1565C0', fontSize: 15 },
+  // Project rows
+  projectIndicatorWrap: { width: 24, alignItems: 'center', marginRight: 4 },
+  indicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: '#bbb',
+    backgroundColor: 'transparent',
+  },
+  indicatorActive: {
+    borderColor: '#1565C0',
+    backgroundColor: '#1565C0',
+  },
+  projectInfo: { flex: 1 },
+  projectName: { fontSize: 15, color: '#333' },
+  projectNameActive: { fontWeight: '700', color: '#1A237E' },
+  projectMeta: { fontSize: 12, color: '#888', marginTop: 2 },
+  folderLink: { fontSize: 13, color: '#1565C0' },
+  addProjectText: { color: '#1565C0', fontSize: 15 },
+  // New project inline form
+  newFormContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  newFormInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    padding: 10,
+    fontSize: 14,
+    backgroundColor: '#fafafa',
+  },
+  newFormActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+    gap: 10,
+  },
+  cancelFormBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  cancelFormText: { fontSize: 14, color: '#555' },
+  createBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    backgroundColor: '#1565C0',
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  createBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  disabledBtn: { opacity: 0.6 },
 });
 
 const sectionStyles = StyleSheet.create({

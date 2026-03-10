@@ -7,6 +7,8 @@ const KEYS = {
   UPLOAD_QUEUE: 'upload_queue',
   SIGNED_IN: 'signed_in',
   BOX_FOLDER: 'box_folder',
+  PROJECTS_LIST: 'projects_list',
+  ACTIVE_PROJECT_ID: 'active_project_id',
 };
 
 // ─── Project State ────────────────────────────────────────────────────────────
@@ -18,6 +20,49 @@ export async function saveProject(project) {
 export async function loadProject() {
   const raw = await AsyncStorage.getItem(KEYS.PROJECT);
   return raw ? JSON.parse(raw) : null;
+}
+
+// ─── Multi-Project Support ────────────────────────────────────────────────────
+
+export async function saveProjectsList(projects) {
+  await AsyncStorage.setItem(KEYS.PROJECTS_LIST, JSON.stringify(projects));
+}
+
+export async function loadProjectsList() {
+  const raw = await AsyncStorage.getItem(KEYS.PROJECTS_LIST);
+  return raw ? JSON.parse(raw) : [];
+}
+
+export async function saveActiveProjectId(id) {
+  await AsyncStorage.setItem(KEYS.ACTIVE_PROJECT_ID, id);
+}
+
+export async function loadActiveProjectId() {
+  return await AsyncStorage.getItem(KEYS.ACTIVE_PROJECT_ID);
+}
+
+export async function getActiveProject() {
+  const [list, activeId] = await Promise.all([loadProjectsList(), loadActiveProjectId()]);
+  return list.find((p) => p.id === activeId) ?? null;
+}
+
+// One-time migration: if projects_list is empty but old project_state exists, import it
+export async function migrateProjectIfNeeded() {
+  const list = await loadProjectsList();
+  if (list.length > 0) return;
+  const raw = await AsyncStorage.getItem(KEYS.PROJECT);
+  if (!raw) return;
+  const old = JSON.parse(raw);
+  const migrated = {
+    id: Date.now().toString(),
+    name: old.collectionName || 'Untitled',
+    archiveName: '',
+    driveFolderId: old.driveFolderId,
+    driveFolderName: old.driveFolderName,
+    createdAt: new Date().toISOString(),
+  };
+  await saveProjectsList([migrated]);
+  await saveActiveProjectId(migrated.id);
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
@@ -95,3 +140,4 @@ export async function loadBoxFolder() {
 export async function resetAll() {
   await AsyncStorage.multiRemove(Object.values(KEYS));
 }
+

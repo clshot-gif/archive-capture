@@ -15,8 +15,8 @@ function authHeaders() {
 
 // ─── Folder ───────────────────────────────────────────────────────────────────
 
-export async function findOrCreateFolder(collectionName) {
-  const folderName = `${Config.DRIVE_FOLDER_PREFIX} — ${collectionName}`;
+export async function findOrCreateFolder(name) {
+  const folderName = `${Config.DRIVE_FOLDER_PREFIX} — ${name}`;
 
   // Search for existing folder
   const query = encodeURIComponent(

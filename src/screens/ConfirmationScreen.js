@@ -85,7 +85,7 @@ export default function ConfirmationScreen({ route, navigation }) {
   async function handleDone() {
     setSaving(true);
     try {
-      const project = await StorageService.loadProject();
+      const project = await StorageService.getActiveProject();
       const counter = await StorageService.getNextCounter();
       const baseName = StorageService.formatCounter(counter);
       const filename = isOMG ? `${baseName} OMG.pdf` : `${baseName}.pdf`;
@@ -111,7 +111,8 @@ export default function ConfirmationScreen({ route, navigation }) {
         is_comment: 'false',
         parent_id: '',
         has_markup: pages.some((p) => p.hasMarkup) ? 'true' : 'false',
-        collection: project?.collectionName || '',
+        collection: project?.name || '',
+        archive_name: project?.archiveName || '',
         captured_at: new Date().toISOString(),
         temp_filename: filename,
         page_count: String(pages.length),

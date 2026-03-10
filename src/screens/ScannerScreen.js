@@ -57,7 +57,8 @@ export default function ScannerScreen({ route, navigation }) {
   }, [route.params?.autoCapture]);
 
   async function loadState() {
-    const proj = await StorageService.loadProject();
+    await StorageService.migrateProjectIfNeeded();
+    const proj = await StorageService.getActiveProject();
     setProject(proj);
     projectRef.current = proj;
     try {
@@ -159,6 +160,13 @@ export default function ScannerScreen({ route, navigation }) {
           />
         </View>
       </View>
+
+      {/* Active project label */}
+      {project && (
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={styles.projectBar}>
+          <Text style={styles.projectBarText}>Project: {project.name}</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Queue indicator */}
       {queueCount > 0 && (
@@ -309,5 +317,18 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 32,
     backgroundColor: '#fff',
+  },
+  projectBar: {
+    backgroundColor: '#E8EAF6',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#C5CAE9',
+  },
+  projectBarText: {
+    fontSize: 13,
+    color: '#1A237E',
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

@@ -16,7 +16,8 @@ GoogleSignin.configure({
 
 export default function OnboardingScreen({ navigation }) {
   const [step, setStep] = useState('signin'); // signin | collection
-  const [collection, setCollection] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [archiveName, setArchiveName] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleSignIn() {
@@ -40,19 +41,24 @@ export default function OnboardingScreen({ navigation }) {
   }
 
   async function handleCollectionSubmit() {
-    if (!collection.trim()) {
-      Alert.alert('Required', 'Please enter a collection name.');
+    if (!projectName.trim()) {
+      Alert.alert('Required', 'Please enter a project name.');
       return;
     }
     setLoading(true);
     try {
-      const folder = await DriveService.findOrCreateFolder(collection.trim());
+      const folder = await DriveService.findOrCreateFolder(projectName.trim());
       const project = {
-        collectionName: collection.trim(),
+        id: Date.now().toString(),
+        name: projectName.trim(),
+        archiveName: archiveName.trim(),
         driveFolderId: folder.id,
         driveFolderName: folder.name,
+        createdAt: new Date().toISOString(),
       };
-      await StorageService.saveProject(project);
+      const existing = await StorageService.loadProjectsList();
+      await StorageService.saveProjectsList([...existing, project]);
+      await StorageService.saveActiveProjectId(project.id);
       navigation.replace('Scanner');
     } catch (err) {
       Alert.alert('Setup error', err.message);
@@ -87,12 +93,21 @@ export default function OnboardingScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.form}>
         <Text style={styles.title}>Set Up Your Project</Text>
 
-        <Text style={styles.label}>What collection are you visiting?</Text>
+        <Text style={styles.label}>Project Name</Text>
         <TextInput
           style={styles.input}
           placeholder="e.g., Sophia Smith Collection"
-          value={collection}
-          onChangeText={setCollection}
+          value={projectName}
+          onChangeText={setProjectName}
+          returnKeyType="next"
+        />
+
+        <Text style={styles.label}>Archive Name (optional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="e.g., Smith Family Papers"
+          value={archiveName}
+          onChangeText={setArchiveName}
           returnKeyType="done"
           onSubmitEditing={handleCollectionSubmit}
         />
