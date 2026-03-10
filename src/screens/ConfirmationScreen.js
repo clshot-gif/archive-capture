@@ -51,12 +51,10 @@ export default function ConfirmationScreen({ route, navigation }) {
 
   async function buildPDF() {
     const pageHtmlParts = pages.map((page, idx) => {
-      const isLast = idx === pages.length - 1;
-      const pageBreakStyle = isLast ? '' : 'page-break-after: always;';
       const commentHtml = page.typedComment
         ? `<div class="comment">${escapeHtml(page.typedComment)}</div>`
         : '';
-      return `<div class="page" style="${pageBreakStyle}">
+      return `<div class="page">
   <div class="img-wrap">
     <img src="data:image/jpeg;base64,${page.base64Image}" />
     <svg viewBox="${page.svgViewBox}" xmlns="http://www.w3.org/2000/svg">
@@ -67,15 +65,49 @@ export default function ConfirmationScreen({ route, navigation }) {
 </div>`;
     });
 
+    // Build per-page blocks (only for pages that have at least one value)
+    const pageBlocks = pages.map((p, i) => {
+      const lines = [];
+      if (p.typedComment) lines.push(`<div class="notes-line"><span class="notes-label">Comments:</span> ${escapeHtml(p.typedComment)}</div>`);
+      if (p.omg) lines.push(`<div class="notes-line notes-omg">OMG</div>`);
+      if (lines.length === 0) return null;
+      return `<div class="notes-block">
+  <div class="notes-page-heading">Page ${i + 1}</div>
+  ${lines.join('\n  ')}
+</div>`;
+    }).filter(Boolean);
+
+    // Document-level footer: tags, box, folder
+    const footerLines = [];
+    if (selectedTags.length > 0) footerLines.push(`<div class="notes-line"><span class="notes-label">Tags:</span> ${selectedTags.map(escapeHtml).join(', ')}</div>`);
+    if (box) footerLines.push(`<div class="notes-line"><span class="notes-label">Box:</span> ${escapeHtml(String(box))}</div>`);
+    if (folder) footerLines.push(`<div class="notes-line"><span class="notes-label">Folder:</span> ${escapeHtml(String(folder))}</div>`);
+
+    const notesBodyHtml = [
+      ...pageBlocks,
+      footerLines.length > 0 ? `<div class="notes-footer">${footerLines.join('\n')}</div>` : '',
+    ].join('\n');
+
+    pageHtmlParts.push(
+      `<div class="notes-page">${notesBodyHtml}</div>`
+    );
+
     const html = `<!DOCTYPE html>
 <html><head><style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { width:210mm; }
-  .page { position:relative; width:100%; }
-  .img-wrap { position:relative; width:100%; }
-  img { width:100%; display:block; }
+  body { width:100vw; }
+  .page { position:relative; width:100vw; height:100vh; page-break-after:always; overflow:hidden; }
+  .img-wrap { position:relative; width:100%; height:100%; }
+  img { width:100%; height:100%; object-fit:contain; display:block; }
   svg { position:absolute; top:0; left:0; width:100%; height:100%; }
   .comment { font-size:14px; padding:8px 12px; background:#fffde7; border-top:2px solid #f9a825; }
+  .notes-page { padding: 24px; }
+  .notes-block { margin-bottom: 20px; }
+  .notes-page-heading { font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #555; margin-bottom: 6px; }
+  .notes-line { font-size: 15px; color: #222; margin-bottom: 4px; }
+  .notes-label { font-weight: bold; }
+  .notes-omg { font-weight: bold; color: #c0392b; }
+  .notes-footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #ddd; }
 </style></head>
 <body>${pageHtmlParts.join('\n')}</body></html>`;
 

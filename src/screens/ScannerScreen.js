@@ -40,8 +40,12 @@ export default function ScannerScreen({ route, navigation }) {
       loadState();
       refreshQueue();
     });
-    const netUnsub = NetInfo.addEventListener((state) => {
+    const netUnsub = NetInfo.addEventListener(async (state) => {
       if (state.isConnected && projectRef.current) {
+        try {
+          const { accessToken } = await GoogleSignin.getTokens();
+          DriveService.setAccessToken(accessToken);
+        } catch (_) { /* not signed in */ }
         UploadQueueService.processQueue(projectRef.current.driveFolderId)
           .then(() => refreshQueue());
       }

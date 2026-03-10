@@ -24,7 +24,7 @@ export async function processQueue(folderId) {
         await StorageService.removeFromQueue(item.localPath);
       } catch (err) {
         console.warn('Queue upload failed for', item.filename, err);
-        break; // Stop on first failure; retry later
+        continue; // Skip failed item; try remaining items
       }
     }
   } finally {
