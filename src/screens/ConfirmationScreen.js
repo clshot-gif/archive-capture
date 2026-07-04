@@ -5,9 +5,7 @@ import {
 } from 'react-native';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
-import NetInfo from '@react-native-community/netinfo';
 import * as StorageService from '../services/StorageService';
-import * as DriveService from '../services/DriveService';
 
 function escapeHtml(str) {
   return str
@@ -50,11 +48,17 @@ export default function ConfirmationScreen({ route, navigation }) {
   }
 
   async function buildPDF() {
+    const backupPages = pages.reduce((acc, p, i) => (p.hasMarkup ? [...acc, i] : acc), []);
+
     const pageHtmlParts = pages.map((page, idx) => {
       const commentHtml = page.typedComment
         ? `<div class="comment">${escapeHtml(page.typedComment)}</div>`
         : '';
+      const bannerHtml = page.hasMarkup
+        ? `<div class="markup-banner">✏️ Marked up — unmarked original on page ${pages.length + 1 + 1 + backupPages.indexOf(idx)}</div>`
+        : '';
       return `<div class="page">
+  ${bannerHtml}
   <div class="img-wrap">
     <img src="data:image/jpeg;base64,${page.base64Image}" />
     <svg viewBox="${page.svgViewBox}" xmlns="http://www.w3.org/2000/svg">
@@ -92,14 +96,22 @@ export default function ConfirmationScreen({ route, navigation }) {
       `<div class="notes-page">${notesBodyHtml}</div>`
     );
 
+    backupPages.forEach((idx) => {
+      const page = pages[idx];
+      pageHtmlParts.push(
+        `<div class="page"><div class="img-wrap"><img src="data:image/jpeg;base64,${page.base64Image}" /></div></div>`
+      );
+    });
+
     const html = `<!DOCTYPE html>
 <html><head><style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { width:100vw; }
-  .page { position:relative; width:100vw; height:100vh; page-break-after:always; overflow:hidden; }
-  .img-wrap { position:relative; width:100%; height:100%; }
+  .page { position:relative; width:100vw; height:100vh; page-break-after:always; overflow:hidden; display:flex; flex-direction:column; }
+  .img-wrap { position:relative; width:100%; flex:1 1 auto; }
   img { width:100%; height:100%; object-fit:contain; display:block; }
   svg { position:absolute; top:0; left:0; width:100%; height:100%; }
+  .markup-banner { flex:0 0 auto; font-size:14px; font-weight:bold; text-align:center; padding:8px 12px; background:#fff3e0; border-bottom:3px solid #e65100; color:#bf360c; }
   .comment { font-size:14px; padding:8px 12px; background:#fffde7; border-top:2px solid #f9a825; }
   .notes-page { padding: 24px; }
   .notes-block { margin-bottom: 20px; }
@@ -131,6 +143,7 @@ export default function ConfirmationScreen({ route, navigation }) {
       await FileSystem.copyAsync({ from: pdfUri, to: localPath });
 
       const omgPages = pages.reduce((acc, p, i) => (p.omg ? [...acc, i] : acc), []);
+      const backupPages = pages.reduce((acc, p, i) => (p.hasMarkup ? [...acc, i] : acc), []);
       const typedComments = pages
         .map((p, i) => (p.typedComment ? { page: i, text: p.typedComment } : null))
         .filter(Boolean);
@@ -149,21 +162,14 @@ export default function ConfirmationScreen({ route, navigation }) {
         temp_filename: filename,
         page_count: String(pages.length),
         omg_pages: JSON.stringify(omgPages),
+        unmarked_backup_pages: JSON.stringify(backupPages),
         typed_comments: JSON.stringify(typedComments),
       };
 
       const folderId = project?.driveFolderId;
-      const netState = await NetInfo.fetch();
 
-      if (netState.isConnected) {
-        try {
-          await DriveService.uploadPDF({ localPath, filename, folderId, metadata });
-        } catch (_) {
-          await StorageService.addToQueue({ localPath, filename, folderId, metadata });
-        }
-      } else {
-        await StorageService.addToQueue({ localPath, filename, folderId, metadata });
-      }
+      // Always queue — ScannerScreen's loadState() → processQueue() handles upload in background
+      await StorageService.addToQueue({ localPath, filename, folderId, metadata });
 
       navigation.navigate('Scanner', { pages: [] });
     } catch (err) {

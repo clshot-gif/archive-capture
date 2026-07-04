@@ -46,27 +46,20 @@ export async function findOrCreateFolder(name) {
 }
 
 // ─── Upload PDF ───────────────────────────────────────────────────────────────
-// Two-step: create file metadata first, then stream binary content.
-// Avoids readAsStringAsync (deprecated in expo-file-system SDK 55).
+// Two-step upload: create metadata-only file, then PATCH binary content.
+// Uses FileSystem.uploadAsync for native binary upload (no base64 encoding).
 
 export async function uploadPDF({ localPath, filename, folderId, metadata }) {
-  // Step 1: Create file with metadata only (no content yet)
+  // Step 1: create metadata-only file
   const metaRes = await fetch('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: filename,
-      parents: [folderId],
-      properties: flattenMetadata(metadata),
-    }),
+    body: JSON.stringify({ name: filename, parents: [folderId], properties: flattenMetadata(metadata) }),
   });
-  if (!metaRes.ok) {
-    const err = await metaRes.text();
-    throw new Error(`Drive create failed: ${metaRes.status} ${err}`);
-  }
+  if (!metaRes.ok) throw new Error(`Drive create failed: ${metaRes.status}`);
   const { id: fileId } = await metaRes.json();
 
-  // Step 2: Upload binary content using FileSystem.uploadAsync (no base64 needed)
+  // Step 2: upload binary content natively (no base64 needed)
   const uploadRes = await FileSystem.uploadAsync(
     `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
     localPath,
@@ -76,10 +69,7 @@ export async function uploadPDF({ localPath, filename, folderId, metadata }) {
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
     }
   );
-  if (uploadRes.status !== 200) {
-    throw new Error(`Drive upload failed: ${uploadRes.status} ${uploadRes.body}`);
-  }
-
+  if (uploadRes.status !== 200) throw new Error(`Drive upload failed: ${uploadRes.status}`);
   return fileId;
 }
 
