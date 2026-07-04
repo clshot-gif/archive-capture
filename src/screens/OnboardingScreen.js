@@ -59,7 +59,7 @@ export default function OnboardingScreen({ navigation }) {
       const existing = await StorageService.loadProjectsList();
       await StorageService.saveProjectsList([...existing, project]);
       await StorageService.saveActiveProjectId(project.id);
-      navigation.replace('Scanner');
+      navigation.replace('TagVocabulary', { fromOnboarding: true, tags: [] });
     } catch (err) {
       Alert.alert('Setup error', err.message);
     } finally {

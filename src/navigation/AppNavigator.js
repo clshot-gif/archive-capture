@@ -9,6 +9,7 @@ import ScannerScreen from '../screens/ScannerScreen';
 import MarkupScreen from '../screens/MarkupScreen';
 import ConfirmationScreen from '../screens/ConfirmationScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import TagVocabularyScreen from '../screens/TagVocabularyScreen';
 
 import * as StorageService from '../services/StorageService';
 import * as DriveService from '../services/DriveService';
@@ -64,6 +65,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Markup" component={MarkupScreen} />
         <Stack.Screen name="Confirmation" component={ConfirmationScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="TagVocabulary" component={TagVocabularyScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

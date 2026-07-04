@@ -35,7 +35,7 @@ export default function TagVocabularyScreen({ route, navigation }) {
 
   async function handleSave() {
     if (tags.length === 0) {
-      Alert.alert('No tags', 'Add at least one tag before continuing.');
+      Alert.alert('No tags', 'Add at least one tag, or tap "Skip for now" below.');
       return;
     }
     await StorageService.saveTags(tags);
@@ -46,14 +46,18 @@ export default function TagVocabularyScreen({ route, navigation }) {
     }
   }
 
+  function handleSkip() {
+    navigation.replace('Scanner');
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>
-        {fromOnboarding ? 'Review Your Tags' : 'Edit Tags'}
+        {fromOnboarding ? 'Create Tags' : 'Edit Tags'}
       </Text>
       {fromOnboarding && (
         <Text style={styles.subtitle}>
-          These tags were generated for your project. Tap any chip to rename it, tap ✕ to delete, + to add.
+          Tags help you sort documents while you scan. This is entirely optional — you can skip it and add tags later, or add them as you go.
         </Text>
       )}
 
@@ -96,6 +100,12 @@ export default function TagVocabularyScreen({ route, navigation }) {
           {fromOnboarding ? 'Start Scanning →' : 'Save'}
         </Text>
       </TouchableOpacity>
+
+      {fromOnboarding && (
+        <TouchableOpacity style={styles.skipBtn} onPress={handleSkip}>
+          <Text style={styles.skipBtnText}>Skip for now</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -160,4 +170,10 @@ const styles = StyleSheet.create({
     margin: 8,
   },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  skipBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  skipBtnText: { color: '#888', fontSize: 14, textDecorationLine: 'underline' },
 });
