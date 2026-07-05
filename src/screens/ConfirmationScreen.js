@@ -167,7 +167,8 @@ export default function ConfirmationScreen({ route, navigation }) {
     setSaving(true);
     try {
       const project = await StorageService.getActiveProject();
-      const counter = await StorageService.getNextCounter();
+      const scopeKey = `${project?.id || 'noproject'}::${box || ''}::${folder || ''}`;
+      const counter = await StorageService.getNextCounterForScope(scopeKey);
       const baseName = buildFileBaseName(box, folder, counter);
       const filename = isOMG ? `${baseName} OMG.pdf` : `${baseName}.pdf`;
 

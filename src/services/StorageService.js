@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const KEYS = {
   PROJECT: 'project_state',
   TAGS: 'tag_vocabulary',
-  COUNTER: 'file_counter',
+  COUNTERS_BY_SCOPE: 'file_counters_by_scope',
   UPLOAD_QUEUE: 'upload_queue',
   SIGNED_IN: 'signed_in',
   BOX_FOLDER: 'box_folder',
@@ -77,12 +77,19 @@ export async function loadTags() {
 }
 
 // ─── File Counter ─────────────────────────────────────────────────────────────
+// Counts restart at 1 within each scope (a project + Box + Folder
+// combination) rather than counting up across the whole app, since that's
+// the numbering she actually wants to see inside a given Drive folder. This
+// stays a purely local counter — same as before — so it still works offline;
+// it just resets whenever the box/folder text changes rather than only once
+// per app install.
 
-export async function getNextCounter() {
-  const raw = await AsyncStorage.getItem(KEYS.COUNTER);
-  const current = raw ? parseInt(raw, 10) : 0;
-  const next = current + 1;
-  await AsyncStorage.setItem(KEYS.COUNTER, String(next));
+export async function getNextCounterForScope(scopeKey) {
+  const raw = await AsyncStorage.getItem(KEYS.COUNTERS_BY_SCOPE);
+  const counters = raw ? JSON.parse(raw) : {};
+  const next = (counters[scopeKey] || 0) + 1;
+  counters[scopeKey] = next;
+  await AsyncStorage.setItem(KEYS.COUNTERS_BY_SCOPE, JSON.stringify(counters));
   return next;
 }
 
