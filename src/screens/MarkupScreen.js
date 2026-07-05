@@ -164,7 +164,7 @@ export default function MarkupScreen({ route, navigation }) {
           onPress={() => setOmg((v) => !v)}
         >
           <Text style={[styles.omgText, omg && styles.omgTextActive]}>
-            {omg ? 'OMG' : '☐'}
+            OMG
           </Text>
         </TouchableOpacity>
       </View>

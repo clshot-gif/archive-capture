@@ -15,6 +15,20 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// Strip characters that are invalid in file/folder names if this Drive
+// content is ever mirrored onto a real filesystem (Windows, phase 2 tooling).
+function sanitizeForFilename(str) {
+  return String(str).trim().replace(/[\\/:*?"<>|]/g, '');
+}
+
+function buildFileBaseName(box, folder, counter) {
+  const parts = [];
+  if (box) parts.push(`Box ${sanitizeForFilename(box)}`);
+  if (folder) parts.push(`Folder ${sanitizeForFilename(folder)}`);
+  parts.push(StorageService.formatCounter(counter));
+  return parts.join(' ');
+}
+
 export default function ConfirmationScreen({ route, navigation }) {
   const { pages, box, folder } = route.params;
 
@@ -131,7 +145,7 @@ export default function ConfirmationScreen({ route, navigation }) {
     try {
       const project = await StorageService.getActiveProject();
       const counter = await StorageService.getNextCounter();
-      const baseName = StorageService.formatCounter(counter);
+      const baseName = buildFileBaseName(box, folder, counter);
       const filename = isOMG ? `${baseName} OMG.pdf` : `${baseName}.pdf`;
 
       const html = await buildPDF();

@@ -4,7 +4,7 @@ import * as StorageService from './StorageService';
 
 let _isRunning = false;
 
-export async function processQueue(folderId) {
+export async function processQueue() {
   if (_isRunning) return;
   _isRunning = true;
 
@@ -15,10 +15,17 @@ export async function processQueue(folderId) {
     const queue = await StorageService.loadQueue();
     for (const item of queue) {
       try {
+        // Each item resolves its own Box/Folder subfolder under its own
+        // project's root folder — never the currently-active project's.
+        const destinationFolderId = await DriveService.resolveDestinationFolder(
+          item.folderId,
+          item.metadata?.box,
+          item.metadata?.folder
+        );
         await DriveService.uploadPDF({
           localPath: item.localPath,
           filename: item.filename,
-          folderId,
+          folderId: destinationFolderId,
           metadata: item.metadata,
         });
         await StorageService.removeFromQueue(item.localPath);

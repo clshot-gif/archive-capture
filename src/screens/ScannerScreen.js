@@ -46,7 +46,7 @@ export default function ScannerScreen({ route, navigation }) {
           const { accessToken } = await GoogleSignin.getTokens();
           DriveService.setAccessToken(accessToken);
         } catch (_) { /* not signed in */ }
-        UploadQueueService.processQueue(projectRef.current.driveFolderId)
+        UploadQueueService.processQueue()
           .then(() => refreshQueue());
       }
     });
@@ -69,7 +69,7 @@ export default function ScannerScreen({ route, navigation }) {
       const { accessToken } = await GoogleSignin.getTokens();
       DriveService.setAccessToken(accessToken);
       if (proj) {
-        UploadQueueService.processQueue(proj.driveFolderId);
+        UploadQueueService.processQueue();
       }
     } catch (_) {
       // Not signed in or token unavailable; Drive uploads will queue
