@@ -15,12 +15,16 @@ function authHeaders() {
 
 // ─── Folder ───────────────────────────────────────────────────────────────────
 
+function escapeForDriveQuery(value) {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 export async function findOrCreateFolder(name) {
   const folderName = `${Config.DRIVE_FOLDER_PREFIX} — ${name}`;
 
   // Search for existing folder
   const query = encodeURIComponent(
-    `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`
+    `mimeType='application/vnd.google-apps.folder' and name='${escapeForDriveQuery(folderName)}' and trashed=false`
   );
   const searchRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`,
@@ -43,6 +47,51 @@ export async function findOrCreateFolder(name) {
   });
   const folder = await createRes.json();
   return { id: folder.id, name: folderName };
+}
+
+// Find or create a folder by name inside a specific parent folder (used for
+// the Box/Folder subfolder hierarchy nested under a project's root folder).
+export async function findOrCreateChildFolder(parentId, name) {
+  const query = encodeURIComponent(
+    `mimeType='application/vnd.google-apps.folder' and name='${escapeForDriveQuery(name)}' and '${parentId}' in parents and trashed=false`
+  );
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)`,
+    { headers: authHeaders() }
+  );
+  const searchData = await searchRes.json();
+
+  if (searchData.files && searchData.files.length > 0) {
+    return { id: searchData.files[0].id, name: searchData.files[0].name };
+  }
+
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    }),
+  });
+  const folder = await createRes.json();
+  return { id: folder.id, name: folder.name };
+}
+
+// Resolve (creating as needed) the Box/Folder subfolder path under a
+// project's root Drive folder. Box and folder are optional — either or both
+// may be blank if she hasn't filled those fields in.
+export async function resolveDestinationFolder(rootFolderId, box, folder) {
+  let targetId = rootFolderId;
+  if (box) {
+    const boxFolder = await findOrCreateChildFolder(targetId, `Box ${box}`);
+    targetId = boxFolder.id;
+  }
+  if (folder) {
+    const folderFolder = await findOrCreateChildFolder(targetId, `Folder ${folder}`);
+    targetId = folderFolder.id;
+  }
+  return targetId;
 }
 
 // ─── Upload PDF ───────────────────────────────────────────────────────────────

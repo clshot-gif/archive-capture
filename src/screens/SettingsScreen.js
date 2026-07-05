@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView,
-  Linking, TextInput, ActivityIndicator,
+  Linking, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as StorageService from '../services/StorageService';
@@ -92,7 +92,11 @@ export default function SettingsScreen({ navigation }) {
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   return (
-    <ScrollView style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+    >
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>← Back</Text>
@@ -144,7 +148,8 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.newFormContainer}>
             <TextInput
               style={styles.newFormInput}
-              placeholder="Project name"
+              placeholder="Project Name"
+              placeholderTextColor="#999"
               value={newName}
               onChangeText={setNewName}
               returnKeyType="next"
@@ -152,7 +157,8 @@ export default function SettingsScreen({ navigation }) {
             />
             <TextInput
               style={[styles.newFormInput, { marginTop: 8 }]}
-              placeholder="Archive name (optional)"
+              placeholder="Collection (optional)"
+              placeholderTextColor="#999"
               value={newArchiveName}
               onChangeText={setNewArchiveName}
               returnKeyType="done"
@@ -194,6 +200,7 @@ export default function SettingsScreen({ navigation }) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -279,6 +286,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 10,
     fontSize: 14,
+    color: '#222',
     backgroundColor: '#fafafa',
   },
   newFormActions: {

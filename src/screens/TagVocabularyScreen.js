@@ -4,18 +4,22 @@ import {
   StyleSheet, Alert,
 } from 'react-native';
 import TagChip from '../components/TagChip';
+import PreviousTagsModal from '../components/PreviousTagsModal';
 import * as StorageService from '../services/StorageService';
 
 export default function TagVocabularyScreen({ route, navigation }) {
   const fromOnboarding = route.params?.fromOnboarding ?? false;
-  const [tags, setTags] = useState(route.params?.tags ?? []);
+  const [tags, setTags] = useState([]);
   const [newTagValue, setNewTagValue] = useState('');
   const [addingNew, setAddingNew] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState(null);
+  const [previousTagsVisible, setPreviousTagsVisible] = useState(false);
 
   useEffect(() => {
-    if (!route.params?.tags) {
-      StorageService.loadTags().then(setTags);
-    }
+    StorageService.getActiveProject().then((project) => {
+      setActiveProjectId(project?.id ?? null);
+      StorageService.loadTagsForProject(project?.id).then(setTags);
+    });
   }, []);
 
   function deleteTag(index) {
@@ -33,12 +37,22 @@ export default function TagVocabularyScreen({ route, navigation }) {
     setAddingNew(false);
   }
 
+  function addPreviousTags(selectedTags) {
+    setTags((prev) => {
+      const merged = [...prev];
+      selectedTags.forEach((t) => {
+        if (!merged.includes(t)) merged.push(t);
+      });
+      return merged;
+    });
+  }
+
   async function handleSave() {
     if (tags.length === 0) {
       Alert.alert('No tags', 'Add at least one tag, or tap "Skip for now" below.');
       return;
     }
-    await StorageService.saveTags(tags);
+    await StorageService.saveTagsForProject(activeProjectId, tags);
     if (fromOnboarding) {
       navigation.replace('Scanner');
     } else {
@@ -78,6 +92,7 @@ export default function TagVocabularyScreen({ route, navigation }) {
               value={newTagValue}
               onChangeText={setNewTagValue}
               placeholder="New tag…"
+              placeholderTextColor="#5B8DBB"
               onSubmitEditing={addTag}
               autoFocus
             />
@@ -95,6 +110,10 @@ export default function TagVocabularyScreen({ route, navigation }) {
         )}
       </ScrollView>
 
+      <TouchableOpacity style={styles.previousTagsBtn} onPress={() => setPreviousTagsVisible(true)}>
+        <Text style={styles.previousTagsBtnText}>Previous Tags</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
         <Text style={styles.saveBtnText}>
           {fromOnboarding ? 'Start Scanning →' : 'Save'}
@@ -106,6 +125,13 @@ export default function TagVocabularyScreen({ route, navigation }) {
           <Text style={styles.skipBtnText}>Skip for now</Text>
         </TouchableOpacity>
       )}
+
+      <PreviousTagsModal
+        visible={previousTagsVisible}
+        existingTags={tags}
+        onClose={() => setPreviousTagsVisible(false)}
+        onAdd={addPreviousTags}
+      />
     </View>
   );
 }
@@ -142,6 +168,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 14,
     minWidth: 120,
+    color: '#222',
     backgroundColor: '#E3F2FD',
   },
   addConfirmBtn: {
@@ -162,12 +189,22 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   addBtnText: { color: '#1565C0', fontSize: 14 },
+  previousTagsBtn: {
+    borderWidth: 1.5,
+    borderColor: '#1565C0',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginHorizontal: 8,
+  },
+  previousTagsBtnText: { color: '#1565C0', fontSize: 15, fontWeight: '600' },
   saveBtn: {
     backgroundColor: '#1565C0',
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',
     margin: 8,
+    marginTop: 12,
   },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   skipBtn: {

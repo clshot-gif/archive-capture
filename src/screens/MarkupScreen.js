@@ -1,13 +1,43 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet, Alert,
-  TextInput, Modal, ActivityIndicator, Dimensions, ScrollView,
+  TextInput, Modal, ActivityIndicator, Dimensions, Animated,
 } from 'react-native';
 import { PanResponder } from 'react-native';
+import { PinchGestureHandler, PanGestureHandler, State as GHState } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+// The Image renders with resizeMode="contain" inside its container, so
+// unless the container's aspect ratio happens to exactly match the photo's,
+// there are blank letterbox margins on two sides. The exported PDF has no
+// such margins (the page is sized to match the photo exactly), so drawing
+// coordinates measured against the full container — margins included — land
+// in the wrong place once mapped onto the margin-free PDF image. Computing
+// the actual visible image rectangle and drawing only within that fixes the
+// mismatch regardless of zoom.
+function computeContentRect(containerWidth, containerHeight, naturalWidth, naturalHeight) {
+  if (!containerWidth || !containerHeight) {
+    return { width: containerWidth || 0, height: containerHeight || 0 };
+  }
+  if (!naturalWidth || !naturalHeight) {
+    return { width: containerWidth, height: containerHeight };
+  }
+  const containerAspect = containerWidth / containerHeight;
+  const imageAspect = naturalWidth / naturalHeight;
+  if (imageAspect > containerAspect) {
+    return { width: containerWidth, height: containerWidth / imageAspect };
+  }
+  return { width: containerHeight * imageAspect, height: containerHeight };
+}
 
 export default function MarkupScreen({ route, navigation }) {
   const { photoUri, box, folder, pages = [] } = route.params;
@@ -18,13 +48,93 @@ export default function MarkupScreen({ route, navigation }) {
   const [paths, setPaths] = useState([]);
   const [currentPath, setCurrentPath] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [imgLayout, setImgLayout] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT - 180 });
+  const [containerLayout, setContainerLayout] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT - 180 });
+  const [naturalSize, setNaturalSize] = useState(null);
+
+  useEffect(() => {
+    Image.getSize(
+      photoUri,
+      (width, height) => setNaturalSize({ width, height }),
+      () => setNaturalSize(null)
+    );
+  }, [photoUri]);
+
+  // The rectangle the image actually occupies within its container, once
+  // resizeMode="contain" letterboxing is accounted for — see
+  // computeContentRect above for why this (not the raw container box) is
+  // what drawing coordinates and the exported viewBox need to be based on.
+  const imgLayout = useMemo(
+    () => computeContentRect(
+      containerLayout.width,
+      containerLayout.height,
+      naturalSize?.width,
+      naturalSize?.height
+    ),
+    [containerLayout.width, containerLayout.height, naturalSize]
+  );
 
   // Type comment
   const [commentVisible, setCommentVisible] = useState(false);
   const [commentText, setCommentText] = useState('');
 
-  // ─── Drawing (single-finger only; two-finger goes to ScrollView for zoom) ──
+  // ─── Pinch to zoom / two-finger pan ─────────────────────────────────────────
+  // React Native's ScrollView zoom (maximumZoomScale) only works on iOS, so
+  // pinch-to-zoom needs its own implementation here via gesture-handler.
+  // baseScale/baseTranslate hold the committed value from prior gestures;
+  // pinchScale/panTranslate hold the current in-progress gesture's delta.
+  const pinchRef = useRef(null);
+  const panRef = useRef(null);
+
+  const baseScale = useRef(new Animated.Value(1)).current;
+  const pinchScale = useRef(new Animated.Value(1)).current;
+  const scaleValue = useRef(1);
+  const combinedScale = useRef(Animated.multiply(baseScale, pinchScale)).current;
+
+  const baseTranslateX = useRef(new Animated.Value(0)).current;
+  const baseTranslateY = useRef(new Animated.Value(0)).current;
+  const panTranslateX = useRef(new Animated.Value(0)).current;
+  const panTranslateY = useRef(new Animated.Value(0)).current;
+  const translateXValue = useRef(0);
+  const translateYValue = useRef(0);
+  const combinedTranslateX = useRef(Animated.add(baseTranslateX, panTranslateX)).current;
+  const combinedTranslateY = useRef(Animated.add(baseTranslateY, panTranslateY)).current;
+
+  const onPinchGestureEvent = Animated.event(
+    [{ nativeEvent: { scale: pinchScale } }],
+    { useNativeDriver: true }
+  );
+
+  function onPinchHandlerStateChange(event) {
+    if (event.nativeEvent.oldState === GHState.ACTIVE) {
+      scaleValue.current = clamp(scaleValue.current * event.nativeEvent.scale, MIN_ZOOM, MAX_ZOOM);
+      baseScale.setValue(scaleValue.current);
+      pinchScale.setValue(1);
+      if (scaleValue.current === MIN_ZOOM) {
+        translateXValue.current = 0;
+        translateYValue.current = 0;
+        baseTranslateX.setValue(0);
+        baseTranslateY.setValue(0);
+      }
+    }
+  }
+
+  const onPanGestureEvent = Animated.event(
+    [{ nativeEvent: { translationX: panTranslateX, translationY: panTranslateY } }],
+    { useNativeDriver: true }
+  );
+
+  function onPanHandlerStateChange(event) {
+    if (event.nativeEvent.oldState === GHState.ACTIVE) {
+      translateXValue.current += event.nativeEvent.translationX;
+      translateYValue.current += event.nativeEvent.translationY;
+      baseTranslateX.setValue(translateXValue.current);
+      baseTranslateY.setValue(translateYValue.current);
+      panTranslateX.setValue(0);
+      panTranslateY.setValue(0);
+    }
+  }
+
+  // ─── Drawing (single-finger only; two-finger goes to pinch/pan above) ──────
 
   const panResponder = useRef(
     PanResponder.create({
@@ -49,6 +159,8 @@ export default function MarkupScreen({ route, navigation }) {
           return null;
         });
       },
+      onPanResponderTerminationRequest: () => true,
+      onShouldBlockNativeResponder: () => false,
     })
   ).current;
 
@@ -68,14 +180,20 @@ export default function MarkupScreen({ route, navigation }) {
       )
       .join('\n');
 
+    // Downscale before embedding as base64 — full-res camera photos (4000px+ on
+    // modern phones) can silently fail to render as a data: URI <img> in the
+    // expo-print WebView, producing a blank page. 1600px wide is plenty for a
+    // scanned document and keeps the HTML payload small.
     const manipResult = await ImageManipulator.manipulateAsync(
       photoUri,
-      [],
-      { format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      [{ resize: { width: 1600 } }],
+      { format: ImageManipulator.SaveFormat.JPEG, base64: true, compress: 0.8 }
     );
 
     return {
       base64Image: manipResult.base64,
+      imageWidth: manipResult.width,
+      imageHeight: manipResult.height,
       svgMarkup,
       svgViewBox: `0 0 ${imgLayout.width} ${imgLayout.height}`,
       omg,
@@ -160,64 +278,85 @@ export default function MarkupScreen({ route, navigation }) {
           onPress={() => setOmg((v) => !v)}
         >
           <Text style={[styles.omgText, omg && styles.omgTextActive]}>
-            {omg ? 'OMG' : '☐'}
+            OMG
           </Text>
         </TouchableOpacity>
       </View>
 
       {/* Zoomable canvas */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flex: 1 }}
-        maximumZoomScale={5}
-        minimumZoomScale={1}
-        pinchGestureEnabled={true}
-        scrollEnabled={true}
-        showsHorizontalScrollIndicator={false}
-        showsVerticalScrollIndicator={false}
-        bouncesZoom={false}
-      >
-        <View
-          style={styles.canvas}
-          onLayout={(e) => setImgLayout({
-            width: e.nativeEvent.layout.width,
-            height: e.nativeEvent.layout.height,
-          })}
-          {...panResponder.panHandlers}
+      <View style={{ flex: 1, overflow: 'hidden' }}>
+        <PinchGestureHandler
+          ref={pinchRef}
+          simultaneousHandlers={panRef}
+          onGestureEvent={onPinchGestureEvent}
+          onHandlerStateChange={onPinchHandlerStateChange}
         >
-          <Image
-            source={{ uri: photoUri }}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="contain"
-          />
-          <Svg
-            style={StyleSheet.absoluteFill}
-            viewBox={`0 0 ${imgLayout.width} ${imgLayout.height}`}
-          >
-            {paths.map((p, i) => (
-              <Path
-                key={i}
-                d={pointsToD(p.points)}
-                stroke={p.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
-                strokeWidth={p.tool === 'highlighter' ? 24 : 3}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-            {currentPath && (
-              <Path
-                d={pointsToD(currentPath.points)}
-                stroke={currentPath.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
-                strokeWidth={currentPath.tool === 'highlighter' ? 24 : 3}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-          </Svg>
-        </View>
-      </ScrollView>
+          <Animated.View style={{ flex: 1 }}>
+            <PanGestureHandler
+              ref={panRef}
+              simultaneousHandlers={pinchRef}
+              onGestureEvent={onPanGestureEvent}
+              onHandlerStateChange={onPanHandlerStateChange}
+              minPointers={2}
+              maxPointers={2}
+            >
+              <Animated.View
+                style={[
+                  styles.canvas,
+                  {
+                    transform: [
+                      { translateX: combinedTranslateX },
+                      { translateY: combinedTranslateY },
+                      { scale: combinedScale },
+                    ],
+                  },
+                ]}
+                onLayout={(e) => setContainerLayout({
+                  width: e.nativeEvent.layout.width,
+                  height: e.nativeEvent.layout.height,
+                })}
+              >
+                <View
+                  style={{ width: imgLayout.width, height: imgLayout.height }}
+                  {...panResponder.panHandlers}
+                >
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="contain"
+                  />
+                  <Svg
+                    style={StyleSheet.absoluteFill}
+                    viewBox={`0 0 ${imgLayout.width} ${imgLayout.height}`}
+                  >
+                    {paths.map((p, i) => (
+                      <Path
+                        key={i}
+                        d={pointsToD(p.points)}
+                        stroke={p.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
+                        strokeWidth={p.tool === 'highlighter' ? 24 : 3}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                    {currentPath && (
+                      <Path
+                        d={pointsToD(currentPath.points)}
+                        stroke={currentPath.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
+                        strokeWidth={currentPath.tool === 'highlighter' ? 24 : 3}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+                  </Svg>
+                </View>
+              </Animated.View>
+            </PanGestureHandler>
+          </Animated.View>
+        </PinchGestureHandler>
+      </View>
 
       {/* Action buttons */}
       <View style={styles.actions}>
@@ -255,6 +394,7 @@ export default function MarkupScreen({ route, navigation }) {
               onChangeText={setCommentText}
               multiline
               placeholder="Notes about this document…"
+              placeholderTextColor="#999"
               textAlignVertical="top"
               autoFocus
             />
@@ -313,7 +453,7 @@ const styles = StyleSheet.create({
   omgActive: { backgroundColor: '#B71C1C' },
   omgText: { fontSize: 16, color: '#aaa', fontWeight: '700' },
   omgTextActive: { color: '#fff', fontWeight: '900' },
-  canvas: { flex: 1 },
+  canvas: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   actions: {
     flexDirection: 'row', padding: 12, gap: 8,
     backgroundColor: '#1A1A2E', paddingBottom: 32,
@@ -338,7 +478,8 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 16 },
   commentInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
-    padding: 12, fontSize: 15, height: 140, marginBottom: 16, backgroundColor: '#fafafa',
+    padding: 12, fontSize: 15, height: 140, marginBottom: 16,
+    color: '#222', backgroundColor: '#fafafa',
   },
   primaryBtn: { backgroundColor: '#1565C0', padding: 14, borderRadius: 8, alignItems: 'center' },
   primaryBtnText: { color: '#fff', fontWeight: '600', fontSize: 15 },

@@ -6,6 +6,7 @@ import {
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as StorageService from '../services/StorageService';
+import PreviousTagsModal from '../components/PreviousTagsModal';
 
 function escapeHtml(str) {
   return str
@@ -13,6 +14,43 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Strip characters that are invalid in file/folder names if this Drive
+// content is ever mirrored onto a real filesystem (Windows, phase 2 tooling).
+function sanitizeForFilename(str) {
+  return String(str).trim().replace(/[\\/:*?"<>|]/g, '');
+}
+
+function buildFileBaseName(box, folder, counter) {
+  const parts = [];
+  if (box) parts.push(`Box ${sanitizeForFilename(box)}`);
+  if (folder) parts.push(`Folder ${sanitizeForFilename(folder)}`);
+  parts.push(StorageService.formatCounter(counter));
+  return parts.join(' ');
+}
+
+// expo-print renders each `.page` div against a real fixed PDF page size, not
+// the phone's screen — a page shaped like typical print paper (~0.77 wide
+// per unit tall) is a lot squatter than a portrait phone photo (~0.5 wide per
+// unit tall). Fitting a much-taller-than-the-page image into that box via
+// vh/percentage-height CSS was landing on a webview flexbox edge case that
+// collapsed to the image's natural size and let `overflow:hidden` clip most
+// of it away. Sizing the PDF page itself to match the photo's aspect ratio
+// avoids that fitting problem entirely — width:100%/height:auto is all that's
+// needed once the page is already the right shape.
+const PAGE_WIDTH_PT = 612; // 8.5in at 72pt/in — arbitrary but print-reasonable
+const FALLBACK_ASPECT = 0.5; // used only if a page is missing image dimensions
+const BANNER_ALLOWANCE_PT = 50;
+const COMMENT_ALLOWANCE_PT = 100;
+
+function computePageSize(pages) {
+  const withDims = pages.find((p) => p.imageWidth && p.imageHeight);
+  const aspect = withDims ? withDims.imageWidth / withDims.imageHeight : FALLBACK_ASPECT;
+  let height = Math.round(PAGE_WIDTH_PT / aspect);
+  if (pages.some((p) => p.hasMarkup)) height += BANNER_ALLOWANCE_PT;
+  if (pages.some((p) => p.typedComment)) height += COMMENT_ALLOWANCE_PT;
+  return { width: PAGE_WIDTH_PT, height };
 }
 
 export default function ConfirmationScreen({ route, navigation }) {
@@ -23,11 +61,16 @@ export default function ConfirmationScreen({ route, navigation }) {
   const [newTagText, setNewTagText] = useState('');
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState(null);
+  const [previousTagsVisible, setPreviousTagsVisible] = useState(false);
 
   const isOMG = pages.some((p) => p.omg);
 
   useEffect(() => {
-    StorageService.loadTags().then(setTags);
+    StorageService.getActiveProject().then((project) => {
+      setActiveProjectId(project?.id ?? null);
+      StorageService.loadTagsForProject(project?.id).then(setTags);
+    });
   }, []);
 
   function toggleTag(tag) {
@@ -36,13 +79,36 @@ export default function ConfirmationScreen({ route, navigation }) {
     );
   }
 
+  async function deleteProjectTag(tag) {
+    const updated = tags.filter((t) => t !== tag);
+    setTags(updated);
+    setSelectedTags((prev) => prev.filter((t) => t !== tag));
+    await StorageService.saveTagsForProject(activeProjectId, updated);
+  }
+
+  async function addPreviousTags(selectedPreviousTags) {
+    const merged = [...tags];
+    selectedPreviousTags.forEach((t) => {
+      if (!merged.includes(t)) merged.push(t);
+    });
+    setTags(merged);
+    setSelectedTags((prev) => {
+      const mergedSelected = [...prev];
+      selectedPreviousTags.forEach((t) => {
+        if (!mergedSelected.includes(t)) mergedSelected.push(t);
+      });
+      return mergedSelected;
+    });
+    await StorageService.saveTagsForProject(activeProjectId, merged);
+  }
+
   async function addNewTag() {
     const trimmed = newTagText.trim();
     if (!trimmed) return;
     const updated = [...tags, trimmed];
     setTags(updated);
     setSelectedTags((prev) => [...prev, trimmed]);
-    await StorageService.saveTags(updated);
+    await StorageService.saveTagsForProject(activeProjectId, updated);
     setNewTagText('');
     setAddingNew(false);
   }
@@ -106,12 +172,12 @@ export default function ConfirmationScreen({ route, navigation }) {
     const html = `<!DOCTYPE html>
 <html><head><style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { width:100vw; }
-  .page { position:relative; width:100vw; height:100vh; page-break-after:always; overflow:hidden; display:flex; flex-direction:column; }
-  .img-wrap { position:relative; width:100%; flex:1 1 auto; }
-  img { width:100%; height:100%; object-fit:contain; display:block; }
+  body { width:100%; }
+  .page { position:relative; width:100%; page-break-after:always; }
+  .img-wrap { position:relative; width:100%; }
+  img { width:100%; height:auto; display:block; }
   svg { position:absolute; top:0; left:0; width:100%; height:100%; }
-  .markup-banner { flex:0 0 auto; font-size:14px; font-weight:bold; text-align:center; padding:8px 12px; background:#fff3e0; border-bottom:3px solid #e65100; color:#bf360c; }
+  .markup-banner { font-size:14px; font-weight:bold; text-align:center; padding:8px 12px; background:#fff3e0; border-bottom:3px solid #e65100; color:#bf360c; }
   .comment { font-size:14px; padding:8px 12px; background:#fffde7; border-top:2px solid #f9a825; }
   .notes-page { padding: 24px; }
   .notes-block { margin-bottom: 20px; }
@@ -130,12 +196,14 @@ export default function ConfirmationScreen({ route, navigation }) {
     setSaving(true);
     try {
       const project = await StorageService.getActiveProject();
-      const counter = await StorageService.getNextCounter();
-      const baseName = StorageService.formatCounter(counter);
+      const scopeKey = `${project?.id || 'noproject'}::${box || ''}::${folder || ''}`;
+      const counter = await StorageService.getNextCounterForScope(scopeKey);
+      const baseName = buildFileBaseName(box, folder, counter);
       const filename = isOMG ? `${baseName} OMG.pdf` : `${baseName}.pdf`;
 
       const html = await buildPDF();
-      const { uri: pdfUri } = await Print.printToFileAsync({ html });
+      const { width: pageWidth, height: pageHeight } = computePageSize(pages);
+      const { uri: pdfUri } = await Print.printToFileAsync({ html, width: pageWidth, height: pageHeight });
 
       const localDir = FileSystem.documentDirectory + 'pending/';
       await FileSystem.makeDirectoryAsync(localDir, { intermediates: true });
@@ -195,18 +263,19 @@ export default function ConfirmationScreen({ route, navigation }) {
         {tags.map((tag) => {
           const selected = selectedTags.includes(tag);
           return (
-            <TouchableOpacity
-              key={tag}
-              style={styles.tagRow}
-              onPress={() => toggleTag(tag)}
-            >
-              <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-                {selected && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text style={[styles.tagLabel, selected && styles.tagLabelSelected]}>
-                {tag}
-              </Text>
-            </TouchableOpacity>
+            <View key={tag} style={styles.tagRow}>
+              <TouchableOpacity style={styles.tagRowMain} onPress={() => toggleTag(tag)}>
+                <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+                  {selected && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={[styles.tagLabel, selected && styles.tagLabelSelected]}>
+                  {tag}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => deleteProjectTag(tag)} style={styles.tagDeleteBtn}>
+                <Text style={styles.tagDeleteText}>✕</Text>
+              </TouchableOpacity>
+            </View>
           );
         })}
 
@@ -217,6 +286,7 @@ export default function ConfirmationScreen({ route, navigation }) {
               value={newTagText}
               onChangeText={setNewTagText}
               placeholder="New tag…"
+              placeholderTextColor="#999"
               onSubmitEditing={addNewTag}
               autoFocus
             />
@@ -231,6 +301,10 @@ export default function ConfirmationScreen({ route, navigation }) {
         )}
       </ScrollView>
 
+      <TouchableOpacity style={styles.previousTagsBtn} onPress={() => setPreviousTagsVisible(true)}>
+        <Text style={styles.previousTagsBtnText}>Previous Tags</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         style={[styles.doneBtn, saving && styles.disabledBtn]}
         onPress={handleDone}
@@ -242,6 +316,13 @@ export default function ConfirmationScreen({ route, navigation }) {
           <Text style={styles.doneBtnText}>Done →</Text>
         )}
       </TouchableOpacity>
+
+      <PreviousTagsModal
+        visible={previousTagsVisible}
+        existingTags={tags}
+        onClose={() => setPreviousTagsVisible(false)}
+        onAdd={addPreviousTags}
+      />
     </View>
   );
 }
@@ -280,10 +361,21 @@ const styles = StyleSheet.create({
   tagRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  tagRowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  tagDeleteBtn: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  tagDeleteText: { fontSize: 14, color: '#c0392b', fontWeight: '700' },
   checkbox: {
     width: 22,
     height: 22,
@@ -313,6 +405,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 8,
     fontSize: 14,
+    color: '#222',
   },
   addConfirmBtn: {
     marginLeft: 8,
@@ -326,6 +419,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   addTagText: { color: '#1565C0', fontSize: 14 },
+  previousTagsBtn: {
+    borderWidth: 1.5,
+    borderColor: '#1565C0',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginHorizontal: 16,
+  },
+  previousTagsBtnText: { color: '#1565C0', fontSize: 15, fontWeight: '600' },
   doneBtn: {
     backgroundColor: '#1565C0',
     margin: 16,

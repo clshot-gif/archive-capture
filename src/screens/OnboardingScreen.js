@@ -97,6 +97,7 @@ export default function OnboardingScreen({ navigation }) {
         <TextInput
           style={styles.input}
           placeholder="e.g., Sophia Smith Collection"
+          placeholderTextColor="#999"
           value={projectName}
           onChangeText={setProjectName}
           returnKeyType="next"
@@ -106,6 +107,7 @@ export default function OnboardingScreen({ navigation }) {
         <TextInput
           style={styles.input}
           placeholder="e.g., Smith Family Papers"
+          placeholderTextColor="#999"
           value={archiveName}
           onChangeText={setArchiveName}
           returnKeyType="done"
@@ -167,6 +169,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 15,
+    color: '#222',
     backgroundColor: '#fafafa',
   },
   googleBtn: {

@@ -1,13 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Dimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import NetInfo from '@react-native-community/netinfo';
 import * as StorageService from '../services/StorageService';
 import * as UploadQueueService from '../services/UploadQueueService';
 import * as DriveService from '../services/DriveService';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const SCREEN_ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT;
+
+// The camera preview fills the screen with a "cover" crop, but
+// takePictureAsync() returns the full sensor image (usually 4:3), which is
+// wider than a typical phone screen — so the saved photo shows extra area
+// on the sides beyond what was actually framed in the preview. Center-crop
+// the photo to the same aspect ratio as the preview so the save matches
+// what she saw on screen.
+async function cropToScreenAspect(photo) {
+  const photoAspect = photo.width / photo.height;
+  let cropWidth = photo.width;
+  let cropHeight = photo.height;
+
+  if (photoAspect > SCREEN_ASPECT) {
+    cropWidth = Math.round(photo.height * SCREEN_ASPECT);
+  } else {
+    cropHeight = Math.round(photo.width / SCREEN_ASPECT);
+  }
+
+  const originX = Math.round((photo.width - cropWidth) / 2);
+  const originY = Math.round((photo.height - cropHeight) / 2);
+
+  const result = await ImageManipulator.manipulateAsync(
+    photo.uri,
+    [{ crop: { originX, originY, width: cropWidth, height: cropHeight } }],
+    { format: ImageManipulator.SaveFormat.JPEG, compress: 0.95 }
+  );
+  return result;
+}
 
 export default function ScannerScreen({ route, navigation }) {
   const pages = route.params?.pages ?? [];
@@ -40,17 +72,23 @@ export default function ScannerScreen({ route, navigation }) {
       loadState();
       refreshQueue();
     });
+    // Closing the camera on blur avoids resuming a stale native camera
+    // preview surface after navigating to Settings and back (observed as a
+    // black preview that only clears when the screen is turned off and on).
+    const unsubBlur = navigation.addListener('blur', () => {
+      setShowCamera(false);
+    });
     const netUnsub = NetInfo.addEventListener(async (state) => {
       if (state.isConnected && projectRef.current) {
         try {
           const { accessToken } = await GoogleSignin.getTokens();
           DriveService.setAccessToken(accessToken);
         } catch (_) { /* not signed in */ }
-        UploadQueueService.processQueue(projectRef.current.driveFolderId)
+        UploadQueueService.processQueue()
           .then(() => refreshQueue());
       }
     });
-    return () => { unsub(); netUnsub(); };
+    return () => { unsub(); unsubBlur(); netUnsub(); };
   }, [navigation]);
 
   // Auto-open camera when returning from MarkupScreen via Keep Scanning
@@ -69,7 +107,7 @@ export default function ScannerScreen({ route, navigation }) {
       const { accessToken } = await GoogleSignin.getTokens();
       DriveService.setAccessToken(accessToken);
       if (proj) {
-        UploadQueueService.processQueue(proj.driveFolderId);
+        UploadQueueService.processQueue();
       }
     } catch (_) {
       // Not signed in or token unavailable; Drive uploads will queue
@@ -104,9 +142,10 @@ export default function ScannerScreen({ route, navigation }) {
         quality: 0.9,
         base64: false,
       });
+      const cropped = await cropToScreenAspect(photo);
       setShowCamera(false);
       navigation.navigate('Markup', {
-        photoUri: photo.uri,
+        photoUri: cropped.uri,
         box: box.trim(),
         folder: folder.trim(),
         pages,
@@ -149,6 +188,7 @@ export default function ScannerScreen({ route, navigation }) {
             onChangeText={setBox}
             keyboardType="default"
             placeholder="—"
+            placeholderTextColor="#999"
             returnKeyType="next"
           />
         </View>
@@ -160,6 +200,7 @@ export default function ScannerScreen({ route, navigation }) {
             onChangeText={setFolder}
             keyboardType="default"
             placeholder="—"
+            placeholderTextColor="#999"
             returnKeyType="done"
           />
         </View>
@@ -235,6 +276,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 8,
     fontSize: 15,
+    color: '#222',
     backgroundColor: '#fafafa',
   },
   queueBanner: {
