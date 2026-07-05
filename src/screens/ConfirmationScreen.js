@@ -22,12 +22,14 @@ function sanitizeForFilename(str) {
   return String(str).trim().replace(/[\\/:*?"<>|]/g, '');
 }
 
-function buildFileBaseName(box, folder, counter) {
+function buildFileBaseName(archiveName, projectName, box, folder, counter) {
   const parts = [];
+  if (archiveName) parts.push(sanitizeForFilename(archiveName));
+  if (projectName) parts.push(sanitizeForFilename(projectName));
   if (box) parts.push(`Box ${sanitizeForFilename(box)}`);
   if (folder) parts.push(`Folder ${sanitizeForFilename(folder)}`);
   parts.push(StorageService.formatCounter(counter));
-  return parts.join(' ');
+  return parts.join(' - ');
 }
 
 // expo-print renders each `.page` div against a real fixed PDF page size, not
@@ -198,8 +200,8 @@ export default function ConfirmationScreen({ route, navigation }) {
       const project = await StorageService.getActiveProject();
       const scopeKey = `${project?.id || 'noproject'}::${box || ''}::${folder || ''}`;
       const counter = await StorageService.getNextCounterForScope(scopeKey);
-      const baseName = buildFileBaseName(box, folder, counter);
-      const filename = isOMG ? `${baseName} OMG.pdf` : `${baseName}.pdf`;
+      const baseName = buildFileBaseName(project?.archiveName, project?.name, box, folder, counter);
+      const filename = isOMG ? `${baseName} - OMG.pdf` : `${baseName}.pdf`;
 
       const html = await buildPDF();
       const { width: pageWidth, height: pageHeight } = computePageSize(pages);
