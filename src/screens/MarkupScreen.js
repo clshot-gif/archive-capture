@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet, Alert,
   TextInput, Modal, ActivityIndicator, Dimensions, Animated,
@@ -16,6 +16,29 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+// The Image renders with resizeMode="contain" inside its container, so
+// unless the container's aspect ratio happens to exactly match the photo's,
+// there are blank letterbox margins on two sides. The exported PDF has no
+// such margins (the page is sized to match the photo exactly), so drawing
+// coordinates measured against the full container — margins included — land
+// in the wrong place once mapped onto the margin-free PDF image. Computing
+// the actual visible image rectangle and drawing only within that fixes the
+// mismatch regardless of zoom.
+function computeContentRect(containerWidth, containerHeight, naturalWidth, naturalHeight) {
+  if (!containerWidth || !containerHeight) {
+    return { width: containerWidth || 0, height: containerHeight || 0 };
+  }
+  if (!naturalWidth || !naturalHeight) {
+    return { width: containerWidth, height: containerHeight };
+  }
+  const containerAspect = containerWidth / containerHeight;
+  const imageAspect = naturalWidth / naturalHeight;
+  if (imageAspect > containerAspect) {
+    return { width: containerWidth, height: containerWidth / imageAspect };
+  }
+  return { width: containerHeight * imageAspect, height: containerHeight };
+}
+
 export default function MarkupScreen({ route, navigation }) {
   const { photoUri, box, folder, pages = [] } = route.params;
 
@@ -25,7 +48,30 @@ export default function MarkupScreen({ route, navigation }) {
   const [paths, setPaths] = useState([]);
   const [currentPath, setCurrentPath] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [imgLayout, setImgLayout] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT - 180 });
+  const [containerLayout, setContainerLayout] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT - 180 });
+  const [naturalSize, setNaturalSize] = useState(null);
+
+  useEffect(() => {
+    Image.getSize(
+      photoUri,
+      (width, height) => setNaturalSize({ width, height }),
+      () => setNaturalSize(null)
+    );
+  }, [photoUri]);
+
+  // The rectangle the image actually occupies within its container, once
+  // resizeMode="contain" letterboxing is accounted for — see
+  // computeContentRect above for why this (not the raw container box) is
+  // what drawing coordinates and the exported viewBox need to be based on.
+  const imgLayout = useMemo(
+    () => computeContentRect(
+      containerLayout.width,
+      containerLayout.height,
+      naturalSize?.width,
+      naturalSize?.height
+    ),
+    [containerLayout.width, containerLayout.height, naturalSize]
+  );
 
   // Type comment
   const [commentVisible, setCommentVisible] = useState(false);
@@ -265,43 +311,47 @@ export default function MarkupScreen({ route, navigation }) {
                     ],
                   },
                 ]}
-                onLayout={(e) => setImgLayout({
+                onLayout={(e) => setContainerLayout({
                   width: e.nativeEvent.layout.width,
                   height: e.nativeEvent.layout.height,
                 })}
-                {...panResponder.panHandlers}
               >
-                <Image
-                  source={{ uri: photoUri }}
-                  style={{ width: '100%', height: '100%' }}
-                  resizeMode="contain"
-                />
-                <Svg
-                  style={StyleSheet.absoluteFill}
-                  viewBox={`0 0 ${imgLayout.width} ${imgLayout.height}`}
+                <View
+                  style={{ width: imgLayout.width, height: imgLayout.height }}
+                  {...panResponder.panHandlers}
                 >
-                  {paths.map((p, i) => (
-                    <Path
-                      key={i}
-                      d={pointsToD(p.points)}
-                      stroke={p.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
-                      strokeWidth={p.tool === 'highlighter' ? 24 : 3}
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  ))}
-                  {currentPath && (
-                    <Path
-                      d={pointsToD(currentPath.points)}
-                      stroke={currentPath.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
-                      strokeWidth={currentPath.tool === 'highlighter' ? 24 : 3}
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
-                </Svg>
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="contain"
+                  />
+                  <Svg
+                    style={StyleSheet.absoluteFill}
+                    viewBox={`0 0 ${imgLayout.width} ${imgLayout.height}`}
+                  >
+                    {paths.map((p, i) => (
+                      <Path
+                        key={i}
+                        d={pointsToD(p.points)}
+                        stroke={p.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
+                        strokeWidth={p.tool === 'highlighter' ? 24 : 3}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                    {currentPath && (
+                      <Path
+                        d={pointsToD(currentPath.points)}
+                        stroke={currentPath.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
+                        strokeWidth={currentPath.tool === 'highlighter' ? 24 : 3}
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+                  </Svg>
+                </View>
               </Animated.View>
             </PanGestureHandler>
           </Animated.View>
@@ -403,7 +453,7 @@ const styles = StyleSheet.create({
   omgActive: { backgroundColor: '#B71C1C' },
   omgText: { fontSize: 16, color: '#aaa', fontWeight: '700' },
   omgTextActive: { color: '#fff', fontWeight: '900' },
-  canvas: { flex: 1 },
+  canvas: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   actions: {
     flexDirection: 'row', padding: 12, gap: 8,
     backgroundColor: '#1A1A2E', paddingBottom: 32,

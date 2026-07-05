@@ -60,11 +60,15 @@ export default function ConfirmationScreen({ route, navigation }) {
   const [newTagText, setNewTagText] = useState('');
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState(null);
 
   const isOMG = pages.some((p) => p.omg);
 
   useEffect(() => {
-    StorageService.loadTags().then(setTags);
+    StorageService.getActiveProject().then((project) => {
+      setActiveProjectId(project?.id ?? null);
+      StorageService.loadTagsForProject(project?.id).then(setTags);
+    });
   }, []);
 
   function toggleTag(tag) {
@@ -79,7 +83,7 @@ export default function ConfirmationScreen({ route, navigation }) {
     const updated = [...tags, trimmed];
     setTags(updated);
     setSelectedTags((prev) => [...prev, trimmed]);
-    await StorageService.saveTags(updated);
+    await StorageService.saveTagsForProject(activeProjectId, updated);
     setNewTagText('');
     setAddingNew(false);
   }

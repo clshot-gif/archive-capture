@@ -29,6 +29,7 @@ export default function AppNavigator() {
 
     async function determineStart() {
       await StorageService.migrateProjectIfNeeded();
+      await StorageService.migrateTagsIfNeeded();
       const project = await StorageService.getActiveProject();
       const signedIn = await StorageService.loadSignedIn();
 

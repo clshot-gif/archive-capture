@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEYS = {
   PROJECT: 'project_state',
-  TAGS: 'tag_vocabulary',
+  TAGS: 'tag_vocabulary', // legacy global tag list — kept only for one-time migration
+  TAGS_BY_PROJECT: 'tags_by_project',
+  ALL_TAGS_EVER: 'all_tags_ever',
   COUNTERS_BY_SCOPE: 'file_counters_by_scope',
   UPLOAD_QUEUE: 'upload_queue',
   SIGNED_IN: 'signed_in',
@@ -66,14 +68,58 @@ export async function migrateProjectIfNeeded() {
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────────
+// Each project has its own tag list (fresh/empty for a brand new project),
+// separate from a global "every tag ever used, in any project" pool. The
+// global pool feeds the "Previous Tags" picker so a tagging convention from
+// one project can be reused in another without every project's list growing
+// unbounded by default.
 
-export async function saveTags(tags) {
-  await AsyncStorage.setItem(KEYS.TAGS, JSON.stringify(tags));
+export async function loadTagsForProject(projectId) {
+  const raw = await AsyncStorage.getItem(KEYS.TAGS_BY_PROJECT);
+  const map = raw ? JSON.parse(raw) : {};
+  return map[projectId] || [];
 }
 
-export async function loadTags() {
-  const raw = await AsyncStorage.getItem(KEYS.TAGS);
+export async function saveTagsForProject(projectId, tags) {
+  const raw = await AsyncStorage.getItem(KEYS.TAGS_BY_PROJECT);
+  const map = raw ? JSON.parse(raw) : {};
+  map[projectId] = tags;
+  await AsyncStorage.setItem(KEYS.TAGS_BY_PROJECT, JSON.stringify(map));
+  await addToAllTagsEver(tags);
+}
+
+export async function loadAllTagsEver() {
+  const raw = await AsyncStorage.getItem(KEYS.ALL_TAGS_EVER);
   return raw ? JSON.parse(raw) : [];
+}
+
+async function addToAllTagsEver(newTags) {
+  if (newTags.length === 0) return;
+  const existing = await loadAllTagsEver();
+  const merged = Array.from(new Set([...existing, ...newTags]));
+  await AsyncStorage.setItem(KEYS.ALL_TAGS_EVER, JSON.stringify(merged));
+}
+
+export async function deleteFromAllTagsEver(tag) {
+  const existing = await loadAllTagsEver();
+  await AsyncStorage.setItem(
+    KEYS.ALL_TAGS_EVER,
+    JSON.stringify(existing.filter((t) => t !== tag))
+  );
+}
+
+// One-time migration: the old single global tag list becomes the currently
+// active project's starting list (so in-progress tags aren't lost) and also
+// seeds the new "ever used" pool.
+export async function migrateTagsIfNeeded() {
+  const alreadyMigrated = await AsyncStorage.getItem(KEYS.TAGS_BY_PROJECT);
+  if (alreadyMigrated) return;
+  const oldRaw = await AsyncStorage.getItem(KEYS.TAGS);
+  const oldTags = oldRaw ? JSON.parse(oldRaw) : [];
+  const activeId = await loadActiveProjectId();
+  const map = activeId && oldTags.length > 0 ? { [activeId]: oldTags } : {};
+  await AsyncStorage.setItem(KEYS.TAGS_BY_PROJECT, JSON.stringify(map));
+  await addToAllTagsEver(oldTags);
 }
 
 // ─── File Counter ─────────────────────────────────────────────────────────────
