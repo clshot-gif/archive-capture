@@ -1,4 +1,11 @@
-const IS_DEV = process.env.APP_VARIANT === "development" || !process.env.EAS_BUILD;
+// Only true when explicitly opted into local Expo Go dev mode. Previously
+// this also defaulted true whenever EAS_BUILD wasn't set, which meant the
+// `eas update` CLI (which evaluates this file locally, not inside a build)
+// saw the same "dev" config as a real build and couldn't find the
+// updates/runtimeVersion fields it needs to publish. This app isn't actually
+// run in plain Expo Go (native modules like Google Sign-In need a real
+// build), so there's no need for that fallback.
+const IS_DEV = process.env.APP_VARIANT === "development";
 
 export default {
   expo: {

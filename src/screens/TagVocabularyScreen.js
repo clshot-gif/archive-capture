@@ -78,6 +78,7 @@ export default function TagVocabularyScreen({ route, navigation }) {
               value={newTagValue}
               onChangeText={setNewTagValue}
               placeholder="New tag…"
+              placeholderTextColor="#5B8DBB"
               onSubmitEditing={addTag}
               autoFocus
             />
@@ -142,6 +143,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 14,
     minWidth: 120,
+    color: '#222',
     backgroundColor: '#E3F2FD',
   },
   addConfirmBtn: {

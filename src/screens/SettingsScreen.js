@@ -144,7 +144,8 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.newFormContainer}>
             <TextInput
               style={styles.newFormInput}
-              placeholder="Project name"
+              placeholder="Project Name"
+              placeholderTextColor="#999"
               value={newName}
               onChangeText={setNewName}
               returnKeyType="next"
@@ -152,7 +153,8 @@ export default function SettingsScreen({ navigation }) {
             />
             <TextInput
               style={[styles.newFormInput, { marginTop: 8 }]}
-              placeholder="Archive name (optional)"
+              placeholder="Collection (optional)"
+              placeholderTextColor="#999"
               value={newArchiveName}
               onChangeText={setNewArchiveName}
               returnKeyType="done"
@@ -279,6 +281,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 10,
     fontSize: 14,
+    color: '#222',
     backgroundColor: '#fafafa',
   },
   newFormActions: {

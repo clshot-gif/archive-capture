@@ -49,6 +49,12 @@ export default function MarkupScreen({ route, navigation }) {
           return null;
         });
       },
+      onPanResponderTerminationRequest: () => true,
+      // Android only: without this, claiming the responder for single-finger
+      // drawing also blocks the parent ScrollView's native pinch recognizer
+      // from ever seeing the second finger, so pinch-to-zoom silently does
+      // nothing while this responder is active.
+      onShouldBlockNativeResponder: () => false,
     })
   ).current;
 
@@ -259,6 +265,7 @@ export default function MarkupScreen({ route, navigation }) {
               onChangeText={setCommentText}
               multiline
               placeholder="Notes about this document…"
+              placeholderTextColor="#999"
               textAlignVertical="top"
               autoFocus
             />
@@ -342,7 +349,8 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 16 },
   commentInput: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
-    padding: 12, fontSize: 15, height: 140, marginBottom: 16, backgroundColor: '#fafafa',
+    padding: 12, fontSize: 15, height: 140, marginBottom: 16,
+    color: '#222', backgroundColor: '#fafafa',
   },
   primaryBtn: { backgroundColor: '#1565C0', padding: 14, borderRadius: 8, alignItems: 'center' },
   primaryBtnText: { color: '#fff', fontWeight: '600', fontSize: 15 },

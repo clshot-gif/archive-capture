@@ -231,6 +231,7 @@ export default function ConfirmationScreen({ route, navigation }) {
               value={newTagText}
               onChangeText={setNewTagText}
               placeholder="New tag…"
+              placeholderTextColor="#999"
               onSubmitEditing={addNewTag}
               autoFocus
             />
@@ -327,6 +328,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 8,
     fontSize: 14,
+    color: '#222',
   },
   addConfirmBtn: {
     marginLeft: 8,
