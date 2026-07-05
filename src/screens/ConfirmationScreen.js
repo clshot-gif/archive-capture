@@ -29,6 +29,29 @@ function buildFileBaseName(box, folder, counter) {
   return parts.join(' ');
 }
 
+// expo-print renders each `.page` div against a real fixed PDF page size, not
+// the phone's screen — a page shaped like typical print paper (~0.77 wide
+// per unit tall) is a lot squatter than a portrait phone photo (~0.5 wide per
+// unit tall). Fitting a much-taller-than-the-page image into that box via
+// vh/percentage-height CSS was landing on a webview flexbox edge case that
+// collapsed to the image's natural size and let `overflow:hidden` clip most
+// of it away. Sizing the PDF page itself to match the photo's aspect ratio
+// avoids that fitting problem entirely — width:100%/height:auto is all that's
+// needed once the page is already the right shape.
+const PAGE_WIDTH_PT = 612; // 8.5in at 72pt/in — arbitrary but print-reasonable
+const FALLBACK_ASPECT = 0.5; // used only if a page is missing image dimensions
+const BANNER_ALLOWANCE_PT = 50;
+const COMMENT_ALLOWANCE_PT = 100;
+
+function computePageSize(pages) {
+  const withDims = pages.find((p) => p.imageWidth && p.imageHeight);
+  const aspect = withDims ? withDims.imageWidth / withDims.imageHeight : FALLBACK_ASPECT;
+  let height = Math.round(PAGE_WIDTH_PT / aspect);
+  if (pages.some((p) => p.hasMarkup)) height += BANNER_ALLOWANCE_PT;
+  if (pages.some((p) => p.typedComment)) height += COMMENT_ALLOWANCE_PT;
+  return { width: PAGE_WIDTH_PT, height };
+}
+
 export default function ConfirmationScreen({ route, navigation }) {
   const { pages, box, folder } = route.params;
 
@@ -120,12 +143,12 @@ export default function ConfirmationScreen({ route, navigation }) {
     const html = `<!DOCTYPE html>
 <html><head><style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { width:100vw; }
-  .page { position:relative; width:100vw; height:100vh; page-break-after:always; overflow:hidden; display:flex; flex-direction:column; }
-  .img-wrap { position:relative; width:100%; flex:1 1 auto; }
-  img { width:100%; height:100%; object-fit:contain; display:block; }
+  body { width:100%; }
+  .page { position:relative; width:100%; page-break-after:always; }
+  .img-wrap { position:relative; width:100%; }
+  img { width:100%; height:auto; display:block; }
   svg { position:absolute; top:0; left:0; width:100%; height:100%; }
-  .markup-banner { flex:0 0 auto; font-size:14px; font-weight:bold; text-align:center; padding:8px 12px; background:#fff3e0; border-bottom:3px solid #e65100; color:#bf360c; }
+  .markup-banner { font-size:14px; font-weight:bold; text-align:center; padding:8px 12px; background:#fff3e0; border-bottom:3px solid #e65100; color:#bf360c; }
   .comment { font-size:14px; padding:8px 12px; background:#fffde7; border-top:2px solid #f9a825; }
   .notes-page { padding: 24px; }
   .notes-block { margin-bottom: 20px; }
@@ -149,7 +172,8 @@ export default function ConfirmationScreen({ route, navigation }) {
       const filename = isOMG ? `${baseName} OMG.pdf` : `${baseName}.pdf`;
 
       const html = await buildPDF();
-      const { uri: pdfUri } = await Print.printToFileAsync({ html });
+      const { width: pageWidth, height: pageHeight } = computePageSize(pages);
+      const { uri: pdfUri } = await Print.printToFileAsync({ html, width: pageWidth, height: pageHeight });
 
       const localDir = FileSystem.documentDirectory + 'pending/';
       await FileSystem.makeDirectoryAsync(localDir, { intermediates: true });

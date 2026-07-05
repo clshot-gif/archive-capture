@@ -1,13 +1,20 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet, Alert,
-  TextInput, Modal, ActivityIndicator, Dimensions, ScrollView,
+  TextInput, Modal, ActivityIndicator, Dimensions, Animated,
 } from 'react-native';
 import { PanResponder } from 'react-native';
+import { PinchGestureHandler, PanGestureHandler, State as GHState } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
 
 export default function MarkupScreen({ route, navigation }) {
   const { photoUri, box, folder, pages = [] } = route.params;
@@ -24,7 +31,64 @@ export default function MarkupScreen({ route, navigation }) {
   const [commentVisible, setCommentVisible] = useState(false);
   const [commentText, setCommentText] = useState('');
 
-  // ─── Drawing (single-finger only; two-finger goes to ScrollView for zoom) ──
+  // ─── Pinch to zoom / two-finger pan ─────────────────────────────────────────
+  // React Native's ScrollView zoom (maximumZoomScale) only works on iOS, so
+  // pinch-to-zoom needs its own implementation here via gesture-handler.
+  // baseScale/baseTranslate hold the committed value from prior gestures;
+  // pinchScale/panTranslate hold the current in-progress gesture's delta.
+  const pinchRef = useRef(null);
+  const panRef = useRef(null);
+
+  const baseScale = useRef(new Animated.Value(1)).current;
+  const pinchScale = useRef(new Animated.Value(1)).current;
+  const scaleValue = useRef(1);
+  const combinedScale = useRef(Animated.multiply(baseScale, pinchScale)).current;
+
+  const baseTranslateX = useRef(new Animated.Value(0)).current;
+  const baseTranslateY = useRef(new Animated.Value(0)).current;
+  const panTranslateX = useRef(new Animated.Value(0)).current;
+  const panTranslateY = useRef(new Animated.Value(0)).current;
+  const translateXValue = useRef(0);
+  const translateYValue = useRef(0);
+  const combinedTranslateX = useRef(Animated.add(baseTranslateX, panTranslateX)).current;
+  const combinedTranslateY = useRef(Animated.add(baseTranslateY, panTranslateY)).current;
+
+  const onPinchGestureEvent = Animated.event(
+    [{ nativeEvent: { scale: pinchScale } }],
+    { useNativeDriver: true }
+  );
+
+  function onPinchHandlerStateChange(event) {
+    if (event.nativeEvent.oldState === GHState.ACTIVE) {
+      scaleValue.current = clamp(scaleValue.current * event.nativeEvent.scale, MIN_ZOOM, MAX_ZOOM);
+      baseScale.setValue(scaleValue.current);
+      pinchScale.setValue(1);
+      if (scaleValue.current === MIN_ZOOM) {
+        translateXValue.current = 0;
+        translateYValue.current = 0;
+        baseTranslateX.setValue(0);
+        baseTranslateY.setValue(0);
+      }
+    }
+  }
+
+  const onPanGestureEvent = Animated.event(
+    [{ nativeEvent: { translationX: panTranslateX, translationY: panTranslateY } }],
+    { useNativeDriver: true }
+  );
+
+  function onPanHandlerStateChange(event) {
+    if (event.nativeEvent.oldState === GHState.ACTIVE) {
+      translateXValue.current += event.nativeEvent.translationX;
+      translateYValue.current += event.nativeEvent.translationY;
+      baseTranslateX.setValue(translateXValue.current);
+      baseTranslateY.setValue(translateYValue.current);
+      panTranslateX.setValue(0);
+      panTranslateY.setValue(0);
+    }
+  }
+
+  // ─── Drawing (single-finger only; two-finger goes to pinch/pan above) ──────
 
   const panResponder = useRef(
     PanResponder.create({
@@ -50,10 +114,6 @@ export default function MarkupScreen({ route, navigation }) {
         });
       },
       onPanResponderTerminationRequest: () => true,
-      // Android only: without this, claiming the responder for single-finger
-      // drawing also blocks the parent ScrollView's native pinch recognizer
-      // from ever seeing the second finger, so pinch-to-zoom silently does
-      // nothing while this responder is active.
       onShouldBlockNativeResponder: () => false,
     })
   ).current;
@@ -86,6 +146,8 @@ export default function MarkupScreen({ route, navigation }) {
 
     return {
       base64Image: manipResult.base64,
+      imageWidth: manipResult.width,
+      imageHeight: manipResult.height,
       svgMarkup,
       svgViewBox: `0 0 ${imgLayout.width} ${imgLayout.height}`,
       omg,
@@ -176,58 +238,75 @@ export default function MarkupScreen({ route, navigation }) {
       </View>
 
       {/* Zoomable canvas */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flex: 1 }}
-        maximumZoomScale={5}
-        minimumZoomScale={1}
-        pinchGestureEnabled={true}
-        scrollEnabled={true}
-        showsHorizontalScrollIndicator={false}
-        showsVerticalScrollIndicator={false}
-        bouncesZoom={false}
-      >
-        <View
-          style={styles.canvas}
-          onLayout={(e) => setImgLayout({
-            width: e.nativeEvent.layout.width,
-            height: e.nativeEvent.layout.height,
-          })}
-          {...panResponder.panHandlers}
+      <View style={{ flex: 1, overflow: 'hidden' }}>
+        <PinchGestureHandler
+          ref={pinchRef}
+          simultaneousHandlers={panRef}
+          onGestureEvent={onPinchGestureEvent}
+          onHandlerStateChange={onPinchHandlerStateChange}
         >
-          <Image
-            source={{ uri: photoUri }}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="contain"
-          />
-          <Svg
-            style={StyleSheet.absoluteFill}
-            viewBox={`0 0 ${imgLayout.width} ${imgLayout.height}`}
-          >
-            {paths.map((p, i) => (
-              <Path
-                key={i}
-                d={pointsToD(p.points)}
-                stroke={p.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
-                strokeWidth={p.tool === 'highlighter' ? 24 : 3}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-            {currentPath && (
-              <Path
-                d={pointsToD(currentPath.points)}
-                stroke={currentPath.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
-                strokeWidth={currentPath.tool === 'highlighter' ? 24 : 3}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-          </Svg>
-        </View>
-      </ScrollView>
+          <Animated.View style={{ flex: 1 }}>
+            <PanGestureHandler
+              ref={panRef}
+              simultaneousHandlers={pinchRef}
+              onGestureEvent={onPanGestureEvent}
+              onHandlerStateChange={onPanHandlerStateChange}
+              minPointers={2}
+              maxPointers={2}
+            >
+              <Animated.View
+                style={[
+                  styles.canvas,
+                  {
+                    transform: [
+                      { translateX: combinedTranslateX },
+                      { translateY: combinedTranslateY },
+                      { scale: combinedScale },
+                    ],
+                  },
+                ]}
+                onLayout={(e) => setImgLayout({
+                  width: e.nativeEvent.layout.width,
+                  height: e.nativeEvent.layout.height,
+                })}
+                {...panResponder.panHandlers}
+              >
+                <Image
+                  source={{ uri: photoUri }}
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="contain"
+                />
+                <Svg
+                  style={StyleSheet.absoluteFill}
+                  viewBox={`0 0 ${imgLayout.width} ${imgLayout.height}`}
+                >
+                  {paths.map((p, i) => (
+                    <Path
+                      key={i}
+                      d={pointsToD(p.points)}
+                      stroke={p.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
+                      strokeWidth={p.tool === 'highlighter' ? 24 : 3}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
+                  {currentPath && (
+                    <Path
+                      d={pointsToD(currentPath.points)}
+                      stroke={currentPath.tool === 'highlighter' ? 'rgba(255,235,59,0.6)' : '#111'}
+                      strokeWidth={currentPath.tool === 'highlighter' ? 24 : 3}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+                </Svg>
+              </Animated.View>
+            </PanGestureHandler>
+          </Animated.View>
+        </PinchGestureHandler>
+      </View>
 
       {/* Action buttons */}
       <View style={styles.actions}>
