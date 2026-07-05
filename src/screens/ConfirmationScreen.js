@@ -6,6 +6,7 @@ import {
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as StorageService from '../services/StorageService';
+import PreviousTagsModal from '../components/PreviousTagsModal';
 
 function escapeHtml(str) {
   return str
@@ -61,6 +62,7 @@ export default function ConfirmationScreen({ route, navigation }) {
   const [addingNew, setAddingNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState(null);
+  const [previousTagsVisible, setPreviousTagsVisible] = useState(false);
 
   const isOMG = pages.some((p) => p.omg);
 
@@ -75,6 +77,29 @@ export default function ConfirmationScreen({ route, navigation }) {
     setSelectedTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
+  }
+
+  async function deleteProjectTag(tag) {
+    const updated = tags.filter((t) => t !== tag);
+    setTags(updated);
+    setSelectedTags((prev) => prev.filter((t) => t !== tag));
+    await StorageService.saveTagsForProject(activeProjectId, updated);
+  }
+
+  async function addPreviousTags(selectedPreviousTags) {
+    const merged = [...tags];
+    selectedPreviousTags.forEach((t) => {
+      if (!merged.includes(t)) merged.push(t);
+    });
+    setTags(merged);
+    setSelectedTags((prev) => {
+      const mergedSelected = [...prev];
+      selectedPreviousTags.forEach((t) => {
+        if (!mergedSelected.includes(t)) mergedSelected.push(t);
+      });
+      return mergedSelected;
+    });
+    await StorageService.saveTagsForProject(activeProjectId, merged);
   }
 
   async function addNewTag() {
@@ -238,18 +263,19 @@ export default function ConfirmationScreen({ route, navigation }) {
         {tags.map((tag) => {
           const selected = selectedTags.includes(tag);
           return (
-            <TouchableOpacity
-              key={tag}
-              style={styles.tagRow}
-              onPress={() => toggleTag(tag)}
-            >
-              <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-                {selected && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text style={[styles.tagLabel, selected && styles.tagLabelSelected]}>
-                {tag}
-              </Text>
-            </TouchableOpacity>
+            <View key={tag} style={styles.tagRow}>
+              <TouchableOpacity style={styles.tagRowMain} onPress={() => toggleTag(tag)}>
+                <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+                  {selected && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+                <Text style={[styles.tagLabel, selected && styles.tagLabelSelected]}>
+                  {tag}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => deleteProjectTag(tag)} style={styles.tagDeleteBtn}>
+                <Text style={styles.tagDeleteText}>✕</Text>
+              </TouchableOpacity>
+            </View>
           );
         })}
 
@@ -275,6 +301,10 @@ export default function ConfirmationScreen({ route, navigation }) {
         )}
       </ScrollView>
 
+      <TouchableOpacity style={styles.previousTagsBtn} onPress={() => setPreviousTagsVisible(true)}>
+        <Text style={styles.previousTagsBtnText}>Previous Tags</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         style={[styles.doneBtn, saving && styles.disabledBtn]}
         onPress={handleDone}
@@ -286,6 +316,13 @@ export default function ConfirmationScreen({ route, navigation }) {
           <Text style={styles.doneBtnText}>Done →</Text>
         )}
       </TouchableOpacity>
+
+      <PreviousTagsModal
+        visible={previousTagsVisible}
+        existingTags={tags}
+        onClose={() => setPreviousTagsVisible(false)}
+        onAdd={addPreviousTags}
+      />
     </View>
   );
 }
@@ -324,10 +361,21 @@ const styles = StyleSheet.create({
   tagRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  tagRowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  tagDeleteBtn: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  tagDeleteText: { fontSize: 14, color: '#c0392b', fontWeight: '700' },
   checkbox: {
     width: 22,
     height: 22,
@@ -371,6 +419,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   addTagText: { color: '#1565C0', fontSize: 14 },
+  previousTagsBtn: {
+    borderWidth: 1.5,
+    borderColor: '#1565C0',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginHorizontal: 16,
+  },
+  previousTagsBtnText: { color: '#1565C0', fontSize: 15, fontWeight: '600' },
   doneBtn: {
     backgroundColor: '#1565C0',
     margin: 16,

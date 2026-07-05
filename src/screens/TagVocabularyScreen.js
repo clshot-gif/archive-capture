@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Alert, Modal,
+  StyleSheet, Alert,
 } from 'react-native';
 import TagChip from '../components/TagChip';
+import PreviousTagsModal from '../components/PreviousTagsModal';
 import * as StorageService from '../services/StorageService';
 
 export default function TagVocabularyScreen({ route, navigation }) {
@@ -12,10 +13,7 @@ export default function TagVocabularyScreen({ route, navigation }) {
   const [newTagValue, setNewTagValue] = useState('');
   const [addingNew, setAddingNew] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState(null);
-
   const [previousTagsVisible, setPreviousTagsVisible] = useState(false);
-  const [allTagsEver, setAllTagsEver] = useState([]);
-  const [selectedPreviousTags, setSelectedPreviousTags] = useState([]);
 
   useEffect(() => {
     StorageService.getActiveProject().then((project) => {
@@ -39,6 +37,16 @@ export default function TagVocabularyScreen({ route, navigation }) {
     setAddingNew(false);
   }
 
+  function addPreviousTags(selectedTags) {
+    setTags((prev) => {
+      const merged = [...prev];
+      selectedTags.forEach((t) => {
+        if (!merged.includes(t)) merged.push(t);
+      });
+      return merged;
+    });
+  }
+
   async function handleSave() {
     if (tags.length === 0) {
       Alert.alert('No tags', 'Add at least one tag, or tap "Skip for now" below.');
@@ -55,40 +63,6 @@ export default function TagVocabularyScreen({ route, navigation }) {
   function handleSkip() {
     navigation.replace('Scanner');
   }
-
-  // ─── Previous Tags picker ───────────────────────────────────────────────────
-
-  async function openPreviousTags() {
-    const all = await StorageService.loadAllTagsEver();
-    setAllTagsEver(all);
-    setSelectedPreviousTags([]);
-    setPreviousTagsVisible(true);
-  }
-
-  function togglePreviousTag(tag) {
-    setSelectedPreviousTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
-  }
-
-  async function removeFromEverPool(tag) {
-    await StorageService.deleteFromAllTagsEver(tag);
-    setAllTagsEver((prev) => prev.filter((t) => t !== tag));
-    setSelectedPreviousTags((prev) => prev.filter((t) => t !== tag));
-  }
-
-  function addSelectedPreviousTags() {
-    setTags((prev) => {
-      const merged = [...prev];
-      selectedPreviousTags.forEach((t) => {
-        if (!merged.includes(t)) merged.push(t);
-      });
-      return merged;
-    });
-    setPreviousTagsVisible(false);
-  }
-
-  const availablePreviousTags = allTagsEver.filter((t) => !tags.includes(t));
 
   return (
     <View style={styles.container}>
@@ -136,7 +110,7 @@ export default function TagVocabularyScreen({ route, navigation }) {
         )}
       </ScrollView>
 
-      <TouchableOpacity style={styles.previousTagsBtn} onPress={openPreviousTags}>
+      <TouchableOpacity style={styles.previousTagsBtn} onPress={() => setPreviousTagsVisible(true)}>
         <Text style={styles.previousTagsBtnText}>Previous Tags</Text>
       </TouchableOpacity>
 
@@ -152,62 +126,12 @@ export default function TagVocabularyScreen({ route, navigation }) {
         </TouchableOpacity>
       )}
 
-      {/* Previous Tags modal */}
-      <Modal visible={previousTagsVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Previous Tags</Text>
-            <Text style={styles.modalSubtitle}>
-              Tags you've used in any project. Select the ones to add here.
-            </Text>
-            <ScrollView style={styles.modalList}>
-              {availablePreviousTags.length === 0 ? (
-                <Text style={styles.modalEmptyText}>No previous tags yet.</Text>
-              ) : (
-                availablePreviousTags.map((tag) => {
-                  const selected = selectedPreviousTags.includes(tag);
-                  return (
-                    <View key={tag} style={styles.previousTagRow}>
-                      <TouchableOpacity
-                        style={styles.previousTagCheckArea}
-                        onPress={() => togglePreviousTag(tag)}
-                      >
-                        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-                          {selected && <Text style={styles.checkmark}>✓</Text>}
-                        </View>
-                        <Text style={styles.previousTagLabel}>{tag}</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => removeFromEverPool(tag)}
-                        style={styles.previousTagDeleteBtn}
-                      >
-                        <Text style={styles.previousTagDeleteText}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })
-              )}
-            </ScrollView>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => setPreviousTagsVisible(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalAddBtn, selectedPreviousTags.length === 0 && styles.disabledBtn]}
-                onPress={addSelectedPreviousTags}
-                disabled={selectedPreviousTags.length === 0}
-              >
-                <Text style={styles.modalAddText}>
-                  Add {selectedPreviousTags.length > 0 ? `(${selectedPreviousTags.length})` : ''}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <PreviousTagsModal
+        visible={previousTagsVisible}
+        existingTags={tags}
+        onClose={() => setPreviousTagsVisible(false)}
+        onAdd={addPreviousTags}
+      />
     </View>
   );
 }
@@ -289,76 +213,4 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   skipBtnText: { color: '#888', fontSize: 14, textDecorationLine: 'underline' },
-  // Previous Tags modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalBox: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    maxHeight: '75%',
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#333' },
-  modalSubtitle: { fontSize: 13, color: '#666', marginTop: 4, marginBottom: 12 },
-  modalList: { marginBottom: 12 },
-  modalEmptyText: { fontSize: 14, color: '#888', paddingVertical: 16, textAlign: 'center' },
-  previousTagRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  previousTagCheckArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#bbb',
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxSelected: {
-    borderColor: '#1565C0',
-    backgroundColor: '#1565C0',
-  },
-  checkmark: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  previousTagLabel: { fontSize: 15, color: '#333' },
-  previousTagDeleteBtn: {
-    padding: 8,
-    marginLeft: 8,
-  },
-  previousTagDeleteText: { fontSize: 14, color: '#c0392b', fontWeight: '700' },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
-  modalCancelBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  modalCancelText: { fontSize: 14, color: '#555' },
-  modalAddBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 6,
-    backgroundColor: '#1565C0',
-  },
-  modalAddText: { color: '#fff', fontWeight: '600', fontSize: 14 },
-  disabledBtn: { opacity: 0.5 },
 });
