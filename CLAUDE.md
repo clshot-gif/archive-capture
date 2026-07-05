@@ -8,69 +8,82 @@ Built for a solo, non-technical researcher (Carter's wife) who carries her phone
 
 ## What the app does
 
-She photographs documents one at a time. Each photo becomes a single- or multi-page PDF with pen/highlighter markup baked in, tagged and saved straight to a flat Google Drive folder. No server, no AI processing during capture — just fast, low-friction scanning that works offline and syncs when connectivity returns. A separate "Phase 2" system (not yet built — see `archive-capture-context-for-phase2.md` in the parent folder) will later read this corpus and do the heavier organizing/analysis work.
+She photographs documents one at a time. Each photo becomes a single- or multi-page PDF with pen/highlighter markup baked in, tagged and saved to a Google Drive folder structure (`Archive Capture — Project / Box X / Folder Y / ...`), fully offline-capable and syncing when connectivity returns. A separate "Phase 2" system (not yet built — see `archive-capture-context-for-phase2.md` in the parent folder) will later read this corpus and do the heavier organizing/analysis work.
 
 ## Tech stack
 
 - React Native + Expo SDK 55 (managed workflow), React Native 0.83, React 19
 - `@react-native-google-signin/google-signin` — native Google OAuth
-- Google Drive REST API directly (no SDK) — folder creation, two-step PDF upload, custom file properties for metadata
+- Google Drive REST API directly (no SDK) — nested folder creation (Box/Folder subfolders), two-step PDF upload, custom file properties for metadata
 - `expo-camera`, `expo-image-manipulator`, `expo-print` (HTML → PDF), `react-native-svg` (markup overlay)
-- `@react-native-async-storage/async-storage` for all local state (projects, tags, queue, box/folder)
+- `react-native-gesture-handler` — real cross-platform pinch/pan zoom on the Markup screen (RN's `ScrollView` zoom is iOS-only, doesn't work on Android)
+- `@react-native-async-storage/async-storage` for all local state (projects, tags, queue, box/folder, per-scope file counters)
 - `@react-native-community/netinfo` + a local AsyncStorage queue for offline-first upload
-- No AI/LLM involvement anywhere in this app (removed 2026-07-04 — see below)
+- `expo-updates` + EAS Update — most JS-only changes now ship as an over-the-air update instead of a full native rebuild (see "EAS Update workflow" below)
+- No AI/LLM involvement anywhere in this app (removed 2026-07-04)
 
 ## Screens and current features
 
-- **Onboarding** — Google Sign-In → project name + optional archive name → Drive folder created → **Create Tags** step (manual tag entry, obvious "Skip for now" link, since she usually won't want to set tags up front) → Scanner
-- **Scanner** — persistent box/folder text fields, one-tap camera, active-project banner, offline-queue count banner
-- **Markup** — pen + highlighter with undo, pinch-zoom canvas, OMG flag, typed comment, "Keep Scanning" to add more pages to the same document before saving
-- **Confirmation** — tag checklist (add new tag inline), Done → PDF saved locally, queued for background Drive upload
-- **Settings** — switch between projects, reconnect Google Drive, edit tag vocabulary
-- **Tag Vocabulary** — add/rename/delete tags; reused both from onboarding (with skip) and from Settings
+- **Onboarding** — Google Sign-In → project name + optional archive name (called "Collection" in the UI) → Drive folder created → Create Tags step (skippable) → Scanner. Only fires on the very first-ever sign-in on a device — every subsequent project is created via Settings, which does **not** route through a tag-creation screen (see below).
+- **Scanner** — persistent box/folder text fields (explicit text/placeholder colors so they're never washed out), one-tap camera (captures cropped to match the on-screen preview's aspect ratio), active-project banner, offline-queue count banner. Camera closes automatically on navigating away, to avoid resuming a stale preview surface.
+- **Markup** — pen + highlighter with undo, real pinch-to-zoom + two-finger pan (via gesture-handler), OMG flag (always-visible label, greyed out when off / red-white when on), typed comment, "Keep Scanning" for multi-page documents. Drawing coordinates are computed against the actual visible image rectangle (accounting for letterboxing), not the raw canvas box, so marks land in the same place on-screen and in the exported PDF.
+- **Confirmation** — tag checklist (add new tag inline, delete any current-project tag via ✕, pull in tags from any other project via the **Previous Tags** button), Done → PDF saved locally, always queued for background Drive upload. This is the *only* tags UI most projects ever get, since new projects made via Settings skip the onboarding tag screen.
+- **Settings** — switch between projects (`KeyboardAvoidingView`-wrapped so the new-project fields aren't hidden by the keyboard), reconnect Google Drive, edit tag vocabulary.
+- **Tag Vocabulary** — add/rename/delete tags for the active project, plus its own **Previous Tags** button (same picker component as Confirmation). Reached from Settings, or once from Onboarding.
 
-Multi-page documents, multi-project support, and offline queueing are all implemented and working in the current source — don't assume they still need building.
+Multi-page documents, multi-project support, nested Drive folders, per-folder file numbering, per-project tags with a cross-project "Previous Tags" pool, and offline queueing are all implemented and working — don't assume they still need building.
 
-## Status as of 2026-07-04 (end of day)
+## Status as of 2026-07-05 — field-testing round complete, ready to hand off
 
-**The app runs on a real device again.** Carter connected a Pixel 10a over USB, built via `eas build -p android --profile preview` (no local Java/Android Studio needed — build happens in Expo's cloud), and installed the APK with `adb install`. Sign-in initially failed with Google's `DEVELOPER_ERROR` — root cause was the Android OAuth client in Google Cloud Console (Credentials → "Android client 1", project `526107030062`) had the wrong SHA-1 fingerprint registered (a stale/unrelated one, `5E:8F:16:...`) instead of the actual EAS keystore's fingerprint (`09:5B:B4:B6:94:0B:D0:23:1B:43:14:5B:DC:EF:08:32:6D:AB:DD:E8`). Fixed by editing that field in Google Cloud Console directly — no code or build was needed. **If sign-in ever breaks again with `DEVELOPER_ERROR` in logcat, check that field first before touching code.**
+Every bug surfaced during the 2026-07-04/05 field-testing sessions has been fixed and confirmed working by Carter on the Pixel 10a test phone (see "Fixed this round" below). The app is in a genuinely usable state. What's left is **distribution to her phone**, not further bug-fixing — see "Handing this off to her" below for the concrete remaining steps.
 
-### Important: what's actually installed on the phone right now
+### EAS Update workflow (new capability — use this before reaching for a full rebuild)
 
-The installed APK was built **before** the unmarked-backup-page safeguard (commit `5541d63`) was written. It does include the AI-removal / Create-Tags-with-skip / navigator fix (commit `dadfd95`), since that was already on disk when the build ran. It does **not** include: the backup-page banner/CSS changes, the `unmarked_backup_pages` metadata field, the always-queue-uploads change, or the `app.config.js`/EAS Update migration — all of that only exists in source, untested on any device. **First step next session: rebuild and reinstall (`eas build -p android --profile preview`, then `adb install -r`) before drawing any conclusions about whether the backup-page feature works** — the "no banner, no backup page" observation below is expected given this, not necessarily a real bug.
+`eas.json`'s `preview` build profile now has `"channel": "preview"` wired to a same-named branch, and `app.config.js` was fixed so both `eas build` and `eas update` see the same config (previously a dev/prod detection bug meant `eas update` couldn't find the `updates` config at all).
 
-### Field testing notes (2026-07-04) — first real session on the new phone
+**For any JS-only change** (screens, services, components, styling — anything that doesn't add a new native module, permission, or config-plugin change), ship it with:
+```
+npx eas-cli@latest update --branch preview --environment preview --message "..."
+```
+run from inside real WSL (not the Windows-side shell — there's a UNC-path bug in Windows `cmd.exe` that breaks `npx` when the working directory is a `\\wsl.localhost\...` path; use `wsl.exe -e bash -lc "cd ~/projects/... && npx ..."` if driving this from Windows). No `adb install` needed — already-installed builds check for updates on cold start and apply on the *next* full restart, so changes need the app **closed and reopened twice** to actually take effect (first reopen fetches, second runs it).
 
-Carter used the freshly-installed build and reported the following. None of these have been root-caused with certainty; they're recorded here so the next session doesn't have to re-discover them.
+**Only do a full `eas build -p android --profile preview` + `adb install -r` when** a change touches native config: new native dependency, new Android permission, `app.config.js` plugin changes, `AndroidManifest.xml`-level changes, etc.
 
-1. **Biggest problem — some photos render as a blank/white screen.** Not fully isolated yet, but seemed correlated with pages that have markup and/or a typed comment. **Leading theory:** `MarkupScreen.js`'s `buildPageResult()` (see known issue below) re-encodes the full-resolution camera photo to base64 with no downscaling. The Pixel 10a's camera almost certainly produces much larger photos than whatever device this was last tested on, and `expo-print`'s underlying WebView may have a practical size/memory limit on `data:` URI images — if it's hit, the `<img>` can silently fail to render while a sibling comment or markup overlay (small, text/vector) still shows fine, which would look exactly like "blank except for markup/comment." This may correlate with markup/comments rather than being caused by them (documents she marks up may just tend to be higher-detail photos). **Next step:** add an explicit resize (e.g. `ImageManipulator.manipulateAsync(photoUri, [{ resize: { width: 1600 } }], {...})`) and retest with a known-large photo before assuming anything else is wrong.
-2. **Old projects don't show up anymore.** Most likely explanation: `AsyncStorage` is per-device local storage with no cloud sync — a new phone always starts with an empty project list, tag vocabulary, and box/folder memory, since only the scanned PDFs + Drive metadata are cloud-synced, not the app's local state. This is expected behavior given the current architecture, not a bug, but it does mean **a lost/reset/reinstalled phone currently loses all project setup even though the actual documents are safe** — worth a product discussion about whether to back up project/tag config into Drive too (e.g. a small JSON file per project folder). Separately, this needs to be distinguished from known issue #1 below (stale navigation key), which could produce the *same symptom* even on the *same* phone across app restarts. **Next step:** on the same phone, after creating/using a project, fully close the app (swipe from recents) and reopen — if it drops back to Onboarding instead of showing the existing project, that's issue #1 firing, not a fresh-device artifact.
-3. **Camera showed a black screen right after switching active project and renaming the box, but the saved PDF turned out to be a real photo, not black.** Not reproduced reliably — could be a camera-warmup/timing race right after a screen transition, could be specific to switching project + renaming box together, or could be a one-off. **Next step:** try to isolate — does it happen every time after switching projects (with no box rename)? Every time after any navigation back to Scanner, project-switch or not? Only the first photo after the app has been idle?
-4. **Settings → "+ New Project" form fields aren't labeled clearly** — the two inline text inputs (project name, archive name) don't make it obvious what to type before you tap in. Fix: give them placeholder/example text the way Onboarding's equivalent fields already have (e.g. `"Title"` and `"Archive name"`), in `SettingsScreen.js`'s `newFormInput` fields.
-5. **Cosmetic issue with the OMG button** — reported without specifics. Get a screenshot or exact description next session before acting on this.
+### Fixed this round (2026-07-04 → 2026-07-05)
 
-## Known issues (carried over from earlier code review, still unverified)
+- Blank/white pages — full-res camera photos were hitting a size limit in `expo-print`'s WebView. Fixed with an explicit resize to 1600px wide before base64-encoding (`MarkupScreen.js`).
+- Stale project-key bug — `AppNavigator.js` now calls `migrateProjectIfNeeded()` + `getActiveProject()` instead of the old single-project `loadProject()`, so projects don't vanish on cold start.
+- Upload queue bug — `UploadQueueService.processQueue()` now resolves each queued item's own Drive destination from its own stored `folderId`/box/folder, instead of uploading everything to whichever project happens to be active.
+- Camera capturing more than the on-screen preview showed — the preview crops to fill the screen ("cover"), but the saved photo was the full uncropped sensor image. Now center-cropped to match the preview's aspect ratio (`ScannerScreen.js`).
+- PDF only showing roughly the top half of a photo — the print HTML was fitting a portrait photo into a print-paper-shaped page via `vh`/percentage-height flexbox, which hit a webview flex-height edge case. Fixed by sizing the actual PDF page to match the photo's aspect ratio instead (`ConfirmationScreen.js`).
+- Pinch-to-zoom never worked on Android — RN's `ScrollView` zoom (`maximumZoomScale`) is iOS-only. Replaced with a real cross-platform implementation using `react-native-gesture-handler` (already a transitive dependency, no new native install needed).
+- Markup strokes landing in the wrong place (pulled toward center) — drawing coordinates were based on the full canvas box, not the actual visible image rectangle within it (which is smaller than the box due to `resizeMode="contain"` letterboxing whenever the box's aspect ratio doesn't exactly match the photo's). Now computed against the real image content rect, so on-screen and exported-PDF coordinates agree.
+- Black screen after switching projects — camera now closes automatically on navigating away from Scanner (`blur` listener), so returning never resumes a possibly-stale native camera surface.
+- Washed-out/near-invisible field text — every `TextInput` in the app now sets explicit text and placeholder colors instead of relying on platform/theme defaults.
+- Settings "+ New Project" fields covered by keyboard — wrapped in `KeyboardAvoidingView`.
+- File naming — Drive files now nest as `Archive Capture — Project / Box X / Folder Y / Box X Folder Y 000001[ OMG].pdf`, and the counter restarts at 1 per distinct project+box+folder combination (persisted in AsyncStorage, so it survives app/phone restarts — it only resets when the box/folder text itself is new).
+- Tags — now scoped per project (a new project starts empty) instead of one global list shared by everything. A separate cross-project "ever used" pool feeds a **Previous Tags** picker (multi-select import, plus a prune-from-pool ✕) on both the Confirmation screen and Tag Vocabulary screen. Each project's own tag list also has a per-tag ✕ to delete a mistyped or stale tag directly.
 
-1. **`AppNavigator.js` decides whether to skip onboarding using the old single-project key (`StorageService.loadProject()`/`project_state`), but Onboarding and Settings now only write to the newer `projects_list`/`active_project_id` keys.** Any project created since the multi-project refactor is invisible to the navigator on a cold app start, which would bounce her back to Onboarding and could create a duplicate Drive folder. Directly relevant to field-testing note #2 above. Not yet fixed — needs `AppNavigator.js` to call `StorageService.migrateProjectIfNeeded()` + `getActiveProject()` instead of `loadProject()`.
-2. **`UploadQueueService.processQueue(folderId)` uploads every queued item to whichever project is currently active, ignoring the `folderId` stored on each individual queued item.** Only matters if she has offline items queued and switches active projects before reconnecting — low risk today since she works one archive/project at a time, but worth fixing since multi-project switching exists in the UI.
-3. `MarkupScreen.js`'s `buildPageResult()` re-encodes the full-resolution camera photo to base64 with no downscaling before embedding it in HTML for `expo-print`. Now a leading suspect for field-testing note #1 (blank/white pages) above, not just a theoretical performance concern.
-4. `android` permission list includes `RECORD_AUDIO`, which nothing in the app uses — an unexplained permission prompt, cosmetic/trust issue only.
+### Open / not yet addressed
 
-### Fixed 2026-07-04
-- Removed all AI/Anthropic code (`AnthropicService.js` deleted, `Config.js` no longer has an Anthropic key — it was a placeholder anyway and never actually wired up to any screen). Onboarding never called it in practice; the "AI-generated tags" feature described in old docs was already dead code.
-- Registered `TagVocabularyScreen` in `AppNavigator.js` — it existed and was linked from Settings ("Edit Tag Vocabulary") but was never added to the navigator, so tapping that row would have crashed.
-- Onboarding now routes to the Create Tags screen (with a skip button) instead of AI tag generation.
-- Implemented the unmarked-backup-page safeguard in `ConfirmationScreen.js` (commit `5541d63`) — **not yet tested on a device**, see "Important" note above.
-- Fixed the Google Sign-In `DEVELOPER_ERROR` by correcting the SHA-1 fingerprint on the Android OAuth client in Google Cloud Console (config-only fix, no code changed).
+1. `android` permission list includes `RECORD_AUDIO`, which nothing in the app uses — an unexplained permission prompt, cosmetic/trust issue only. Cheap fix: remove from `app.config.js`'s `android.permissions` — but this is a native-config change, needs a full rebuild, not an `eas update`.
+2. The "cosmetic issue with the OMG button" mentioned in the first field-testing round (2026-07-04, no details given) was never confirmed independently — it may have been resolved incidentally by the OMG button redesign (always-visible "OMG" label, greyed vs. red/white) done during this round, or it may still exist. Ask if it's still visible before assuming it's fixed.
+3. One report of a single page rendering way-zoomed-in and in landscape despite being shot in portrait, on the same page a few times, then not reproducing again after leaving and returning. Not root-caused — looked like a transient camera-session glitch rather than something in app code. Watch for a reproducible pattern before spending effort on it.
+4. Product question, not a bug: a lost/reset/reinstalled phone currently loses all local project/tag/box-folder setup (AsyncStorage is per-device, not cloud-synced) even though the actual scanned documents are always safe in Drive. Worth a future conversation about whether to back up project/tag config into Drive too.
 
-## Start here next session
+## Handing this off to her — what's actually left
 
-1. Rebuild (`eas build -p android --profile preview`) and reinstall (`adb install -r`) so the phone actually has the backup-page safeguard and other recent commits — don't test or judge that feature on the currently-installed build.
-2. Add an explicit photo resize/downscale step in `MarkupScreen.js`'s `buildPageResult()` before base64-encoding, and retest the blank/white-page issue with a deliberately large photo. This is the top suspect for the "biggest problem" reported.
-3. Fix `AppNavigator.js`'s stale project-key check (known issue #1) — cheap, and directly relevant to the "old projects don't show up" report.
-4. Add placeholder text to the Settings "+ New Project" form fields.
-5. Try to reproduce the black-screen-after-project-switch issue with the isolation steps above.
-6. Get a screenshot/description of the OMG button cosmetic issue before doing anything about it.
+The app itself is done for this round. Getting it onto her phone needs two things outside the codebase, both one-time:
+
+1. **Add her Google account as an OAuth test user (Carter must do this — not something Claude can do).** This app's Google Cloud project is unverified/in "Testing" publishing status, which restricts sign-in to an explicit allowlist regardless of who has the APK. Go to Google Cloud Console → project `526107030062` → APIs & Services → OAuth consent screen → Test users → **Add users** → enter her Gmail address → Save. Without this, her sign-in will fail even with a working install.
+   - Expect an "unverified app" warning screen the first time she signs in (normal for a personal app that hasn't gone through Google's verification review) — she'll need to tap "Advanced" → "Go to Archive Capture (unsafe)" once. Not a bug, just what unverified OAuth apps look like.
+2. **Get the APK onto her phone.** No Play Store involved — it's a direct install. The current build's install link (works in any browser, no Expo login needed):
+   `https://expo.dev/artifacts/eas/zbUhKoQsq-nkrev_hSk3dffsk8rMli2hWjCFhNHqAvk.apk`
+   Send her that link (text/email/however) to open on her own phone — it downloads and Android will prompt to install (she'll need to allow "install unknown apps" for whichever app she opens it with, one-time). This link is tied to EAS build `7def09ee-50f1-4b77-8a9c-14d9f1a7eb4f` and expires roughly 30 days after it was built (created 2026-07-05) — fine for "next week," but if this ever needs to be re-sent much later, re-run `eas build -p android --profile preview` first to get a fresh link.
+
+After that, her phone will behave like Carter's test phone: sign in, create her own project (Onboarding, since it's her first time), and every JS-only fix published since this build (all of the "Fixed this round" list above) will already be part of what she installs — no extra step needed, since the build embeds the current channel and will fetch anything published after it too.
+
+She does **not** need to be added to anything else — Drive access is scoped to files/folders her own account creates (`drive.file` scope), so her scans land in her own Drive, under her own new "Archive Capture — ..." folder, same as Carter's.
 
 ## Secret hygiene — read this before touching git
 
@@ -86,13 +99,15 @@ Carter doesn't have established git habits, so default to caution:
 - `git diff` — shows the actual line-by-line changes not yet committed. Safe, read-only.
 - `git add <file>` then `git commit -m "message"` — saves a checkpoint. Use specific filenames, not `git add .`, so you don't accidentally include something you didn't mean to.
 - There is currently no remote (no GitHub) — everything lives only on this machine/WSL. That means there's no off-machine backup of commit history; worth keeping in mind.
-- Building for the phone is a separate step from git — `eas build -p android --profile preview` (via EAS Build, cloud-based) builds an installable APK from whatever is in this folder right now, committed or not.
+- Building for the phone is a separate step from git — `eas build -p android --profile preview` (via EAS Build, cloud-based) builds an installable APK from whatever is in this folder right now, committed or not. For most changes now, `eas update` (see above) is faster and doesn't need a rebuild or reinstall at all.
+- This round of work happened on branch `fix/blank-pages-and-navigator` — merge it into `master` once you're ready to consider it the new baseline.
 
 ## Where things are
 
 - App code: `archive-capture/` (this folder)
 - Design/planning docs: `archive-capture-dev-handoff.md`, `archive-capture-context-for-phase2.md`, `Archive Capture.pdf`, `archive-app-claude-code-spec.docx` — all one level up in `Organizer_Archives/`
 - `src/config/Config.js` — Google Client ID (not secret) and the Drive folder naming prefix
-- `src/services/DriveService.js` — all Drive API calls
-- `src/services/StorageService.js` — all local AsyncStorage reads/writes
-- `src/services/UploadQueueService.js` — offline queue processor (has known bug #2 above)
+- `src/services/DriveService.js` — all Drive API calls, including nested Box/Folder subfolder creation (`findOrCreateChildFolder`, `resolveDestinationFolder`)
+- `src/services/StorageService.js` — all local AsyncStorage reads/writes, including per-scope file counters and per-project + cross-project tag storage
+- `src/services/UploadQueueService.js` — offline queue processor (per-item folder resolution, no longer has the old "wrong active project" bug)
+- `src/components/PreviousTagsModal.js` — shared cross-project tag picker, used by both Confirmation and Tag Vocabulary screens
