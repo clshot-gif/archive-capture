@@ -68,10 +68,14 @@ export default function MarkupScreen({ route, navigation }) {
       )
       .join('\n');
 
+    // Downscale before embedding as base64 — full-res camera photos (4000px+ on
+    // modern phones) can silently fail to render as a data: URI <img> in the
+    // expo-print WebView, producing a blank page. 1600px wide is plenty for a
+    // scanned document and keeps the HTML payload small.
     const manipResult = await ImageManipulator.manipulateAsync(
       photoUri,
-      [],
-      { format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      [{ resize: { width: 1600 } }],
+      { format: ImageManipulator.SaveFormat.JPEG, base64: true, compress: 0.8 }
     );
 
     return {

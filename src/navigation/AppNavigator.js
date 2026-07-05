@@ -28,7 +28,8 @@ export default function AppNavigator() {
     });
 
     async function determineStart() {
-      const project = await StorageService.loadProject();
+      await StorageService.migrateProjectIfNeeded();
+      const project = await StorageService.getActiveProject();
       const signedIn = await StorageService.loadSignedIn();
 
       if (project && signedIn) {
