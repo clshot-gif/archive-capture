@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Alert,
 } from 'react-native';
 import * as StorageService from '../services/StorageService';
 
@@ -24,10 +24,23 @@ export default function PreviousTagsModal({ visible, existingTags, onClose, onAd
     setSelected((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   }
 
-  async function removeFromPool(tag) {
-    await StorageService.deleteFromAllTagsEver(tag);
-    setAllTagsEver((prev) => prev.filter((t) => t !== tag));
-    setSelected((prev) => prev.filter((t) => t !== tag));
+  function removeFromPool(tag) {
+    Alert.alert(
+      'Delete tag?',
+      `Remove "${tag}" from the all-time tag list. This doesn't remove it from any collection it's already on.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await StorageService.deleteFromAllTagsEver(tag);
+            setAllTagsEver((prev) => prev.filter((t) => t !== tag));
+            setSelected((prev) => prev.filter((t) => t !== tag));
+          },
+        },
+      ]
+    );
   }
 
   function handleAdd() {

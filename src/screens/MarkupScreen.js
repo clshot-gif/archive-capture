@@ -6,7 +6,9 @@ import {
 import { PanResponder } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State as GHState } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { buildPlainPageResult } from '../utils/pageBuilder';
+import { CONTROL_ROW_BOTTOM, CONTROL_ROW_HEIGHT } from '../constants/layout';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MIN_ZOOM = 1;
@@ -209,6 +211,12 @@ export default function MarkupScreen({ route, navigation }) {
     }
   }
 
+  // ─── Retake (discard this photo, back to the live camera) ─────────────────
+
+  function handleRetake() {
+    navigation.goBack();
+  }
+
   // ─── Save (final page → Confirmation) ─────────────────────────────────────
 
   async function handleSave() {
@@ -348,17 +356,25 @@ export default function MarkupScreen({ route, navigation }) {
         </PinchGestureHandler>
       </View>
 
+      {/* Retake — discard this photo, back to the live camera. Sits in the
+          space freed up now that the main action row floats higher instead
+          of spanning the full width at the very bottom. */}
+      <TouchableOpacity style={styles.retakeBtn} onPress={handleRetake} disabled={saving}>
+        <Ionicons name="arrow-undo-outline" size={22} color="#ddd" />
+        <Text style={styles.retakeText}>Retake</Text>
+      </TouchableOpacity>
+
       {/* Action buttons */}
       <View style={styles.actions}>
         <TouchableOpacity style={styles.actionBtn} onPress={() => setCommentVisible(true)}>
-          <Text style={styles.actionText}>TYPE{'\n'}COMMENT</Text>
+          <Ionicons name="chatbubble-ellipses-outline" size={26} color="#ddd" />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={handleKeepScanning}
           disabled={saving}
         >
-          <Text style={styles.actionText}>KEEP{'\n'}SCANNING</Text>
+          <Ionicons name="camera" size={26} color="#ddd" />
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, styles.saveActionBtn]}
@@ -368,7 +384,7 @@ export default function MarkupScreen({ route, navigation }) {
           {saving ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={[styles.actionText, { color: '#fff' }]}>SAVE</Text>
+            <MaterialCommunityIcons name="google-drive" size={26} color="#fff" />
           )}
         </TouchableOpacity>
       </View>
@@ -444,19 +460,33 @@ const styles = StyleSheet.create({
   omgText: { fontSize: 16, color: '#aaa', fontWeight: '700' },
   omgTextActive: { color: '#fff', fontWeight: '900' },
   canvas: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  // Floats over the full-bleed photo instead of compressing the canvas —
+  // pinned to the same distance from the bottom edge as Scanner's shutter
+  // and Confirmation's Done button so all three line up (see
+  // src/constants/layout.js).
   actions: {
-    flexDirection: 'row', padding: 12, gap: 8,
-    backgroundColor: '#1A1A2E', paddingBottom: 32,
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: CONTROL_ROW_BOTTOM,
+    height: CONTROL_ROW_HEIGHT,
+    flexDirection: 'row', gap: 8,
   },
   actionBtn: {
-    flex: 1, paddingVertical: 14, borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center',
+    flex: 1, borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center', alignItems: 'center',
   },
   saveActionBtn: { backgroundColor: '#1565C0' },
-  actionText: {
-    color: '#ddd', fontSize: 12, fontWeight: '700',
-    textAlign: 'center', letterSpacing: 0.5,
+  retakeBtn: {
+    position: 'absolute',
+    left: 16,
+    bottom: 12,
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
+  retakeText: { color: '#ddd', fontSize: 11, fontWeight: '600', marginTop: 2 },
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-start',
   },
