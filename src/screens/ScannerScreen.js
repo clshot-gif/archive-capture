@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Dimensions, Switch,
-  KeyboardAvoidingView, Platform, Linking,
+  KeyboardAvoidingView, Platform, Linking, Keyboard,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useIsFocused } from '@react-navigation/native';
@@ -23,7 +23,12 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // top of it.
 const PREVIEW_WIDTH = SCREEN_WIDTH - 32;
 const PREVIEW_HEIGHT = SCREEN_HEIGHT * 0.48;
+// PREVIEW_ASPECT (used for photo cropping) always reflects the full-size
+// preview, even though the box itself visually shrinks while the keyboard
+// is open — that shrink is cosmetic only, to keep Box/Folder visible above
+// the keyboard, not a change to what actually gets framed and captured.
 const PREVIEW_ASPECT = PREVIEW_WIDTH / PREVIEW_HEIGHT;
+const PREVIEW_HEIGHT_KEYBOARD = SCREEN_HEIGHT * 0.22;
 
 // The preview box crops the live feed to PREVIEW_ASPECT ("cover"), but
 // takePictureAsync() returns the full sensor image (usually 4:3), which is
@@ -63,9 +68,20 @@ export default function ScannerScreen({ route, navigation }) {
   const [capturing, setCapturing] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [project, setProject] = useState(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const cameraRef = useRef(null);
   const projectRef = useRef(null);
   const isFocused = useIsFocused();
+
+  // Shrink the live preview while the keyboard is up so Box/Folder (and the
+  // controls below them) stay visible above it instead of being covered.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   // Restore box/folder on mount
   useEffect(() => {
@@ -145,6 +161,14 @@ export default function ScannerScreen({ route, navigation }) {
         return;
       }
 
+      if (batchPhotos.length > 0) {
+        // GO MODE was turned off after already taking some photos — this
+        // regular-mode shot finishes that batch as its last, markable page,
+        // same as tapping Save would have.
+        await finishBatch(cropped.uri, batchPhotos);
+        return;
+      }
+
       navigation.navigate('Markup', {
         photoUri: cropped.uri,
         box: box.trim(),
@@ -164,16 +188,17 @@ export default function ScannerScreen({ route, navigation }) {
     }
   }
 
-  function discardBatch() {
-    setBatchPhotos([]);
+  // Undoes only the most recently taken GO MODE photo, not the whole batch.
+  function retakeLast() {
+    setBatchPhotos((prev) => prev.slice(0, -1));
   }
 
-  // Only the last photo of a batch goes to Markup as the markable page —
-  // the rest are saved as unmarked pages ahead of it.
-  async function handleBatchDone() {
-    if (batchPhotos.length === 0) return;
-    const lastUri = batchPhotos[batchPhotos.length - 1];
-    const earlierUris = batchPhotos.slice(0, -1);
+  // Shared by "Save" (finishing on the last GO MODE photo itself) and a
+  // regular-mode shot taken after GO MODE was turned off (finishing on that
+  // new photo instead) — either way, only the last photo of the batch goes
+  // to Markup as the markable page; the rest are saved as unmarked pages
+  // ahead of it.
+  async function finishBatch(lastUri, earlierUris) {
     setBatchPhotos([]);
     try {
       const earlierPageResults = await Promise.all(earlierUris.map(buildPlainPageResult));
@@ -186,6 +211,13 @@ export default function ScannerScreen({ route, navigation }) {
     } catch (err) {
       Alert.alert('Error', 'Could not process batch photos: ' + err.message);
     }
+  }
+
+  function handleSaveBatch() {
+    if (batchPhotos.length === 0) return;
+    const lastUri = batchPhotos[batchPhotos.length - 1];
+    const earlierUris = batchPhotos.slice(0, -1);
+    finishBatch(lastUri, earlierUris);
   }
 
   return (
@@ -213,15 +245,6 @@ export default function ScannerScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Settings — positioned independently of the project bar so it's
-            always reachable even before the active project has loaded. */}
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={() => navigation.navigate('Settings')}
-        >
-          <Text style={styles.settingsIcon}>⚙️</Text>
-        </TouchableOpacity>
-
         {/* Queue indicator */}
         {queueCount > 0 && (
           <View style={styles.queueBanner}>
@@ -241,7 +264,12 @@ export default function ScannerScreen({ route, navigation }) {
         )}
 
         {/* Live camera preview */}
-        <View style={styles.previewBox}>
+        <View
+          style={[
+            styles.previewBox,
+            keyboardVisible && { height: PREVIEW_HEIGHT_KEYBOARD },
+          ]}
+        >
           {isFocused && permission?.granted ? (
             <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
           ) : (
@@ -256,7 +284,7 @@ export default function ScannerScreen({ route, navigation }) {
               )}
             </View>
           )}
-          {goMode && batchPhotos.length > 0 && (
+          {batchPhotos.length > 0 && (
             <View style={styles.batchCountBadge}>
               <Text style={styles.batchCountText}>
                 {batchPhotos.length} photo{batchPhotos.length !== 1 ? 's' : ''}
@@ -307,9 +335,10 @@ export default function ScannerScreen({ route, navigation }) {
 
         {/* Shutter + batch controls */}
         <View style={styles.cameraControls}>
-          {goMode && batchPhotos.length > 0 ? (
-            <TouchableOpacity style={styles.discardBtn} onPress={discardBatch}>
-              <Text style={styles.discardText}>✕</Text>
+          {batchPhotos.length > 0 ? (
+            <TouchableOpacity style={styles.retakeBtn} onPress={retakeLast}>
+              <Ionicons name="arrow-undo-outline" size={18} color="#555" />
+              <Text style={styles.retakeText}>Retake</Text>
             </TouchableOpacity>
           ) : (
             <View style={{ width: 48 }} />
@@ -325,14 +354,24 @@ export default function ScannerScreen({ route, navigation }) {
             </View>
           </TouchableOpacity>
 
-          {goMode && batchPhotos.length > 0 ? (
-            <TouchableOpacity style={styles.doneBatchBtn} onPress={handleBatchDone}>
-              <Text style={styles.doneBatchText}>Done</Text>
+          {batchPhotos.length > 0 ? (
+            <TouchableOpacity style={styles.saveBatchBtn} onPress={handleSaveBatch}>
+              <Text style={styles.saveBatchText}>Save</Text>
             </TouchableOpacity>
           ) : (
             <View style={{ width: 48 }} />
           )}
         </View>
+
+        {/* Settings — lower-right corner, clear of the "waiting to sync"
+            banner and the project bar. The project label above is also a
+            link to Settings. */}
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => navigation.navigate('Settings')}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
@@ -428,7 +467,7 @@ const styles = StyleSheet.create({
   },
   settingsBtn: {
     position: 'absolute',
-    top: 102,
+    bottom: 16,
     right: 16,
   },
   settingsIcon: { fontSize: 26 },
@@ -443,15 +482,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
-  discardBtn: {
-    width: 48,
+  retakeBtn: {
+    width: 64,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: '#eee',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  discardText: { color: '#555', fontSize: 18, fontWeight: '700' },
+  retakeText: { color: '#555', fontSize: 11, fontWeight: '600', marginTop: 2 },
   batchCountBadge: {
     position: 'absolute',
     top: 12,
@@ -462,7 +499,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   batchCountText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  doneBatchBtn: {
+  saveBatchBtn: {
     width: 64,
     height: 48,
     borderRadius: 24,
@@ -470,7 +507,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  doneBatchText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  saveBatchText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   shutterBtn: {
     width: 72,
     height: 72,
