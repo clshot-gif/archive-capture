@@ -12,16 +12,15 @@ The object is built once per saved document in
 then flattened to all-string values before upload (Drive `properties` values
 must be strings — anything else gets `JSON.stringify`'d).
 
-## ⚠️ Naming quirk to know about
+## The two name fields
 
-The `collection` property actually holds the **Project name** (the field
-always required at setup), and `archive_name` holds the **Collection name**
-(the optional field, labeled "Archive Name (optional)" on the sign-up screen
-but referred to as "Collection" elsewhere in this project's docs/CLAUDE.md).
-The keys are swapped relative to what their names suggest. This has been true
-since the field was introduced, so every PDF ever uploaded uses this same
-(backwards) mapping — a future metadata UI should account for it rather than
-assume the key names are literal.
+There's no "Project" concept in this app — every scan belongs to a
+**Collection** (required, set at first sign-in or via "+ New Collection" in
+Settings) and optionally an **Archive Name** (where the physical documents
+actually live/came from, e.g. a specific archive or collection site). The
+`collection` property holds the Collection value; `archive_name` holds the
+Archive Name value. Both are set once when the collection is created and
+don't change per-document.
 
 ## Fields
 
@@ -34,10 +33,10 @@ assume the key names are literal.
 | `is_comment` | `"false"` (always) | yes | `"false"` | Always false today — reserved, unused |
 | `parent_id` | string | yes (always `''` today) | `""` | Reserved for a future doc-relationship feature, unused |
 | `has_markup` | `"true"` \| `"false"` | yes | `"true"` | Whether any page has pen/highlighter marks |
-| `collection` | string | yes (may be `''`) | `"Good Poems"` | **Actually the Project name** — see naming quirk above |
-| `archive_name` | string | yes (may be `''`) | `"Five Forks"` | **Actually the Collection/Archive name** — see naming quirk above |
+| `collection` | string | yes (may be `''`) | `"Good Poems"` | The Collection name (required field) |
+| `archive_name` | string | yes (may be `''`) | `"Five Forks"` | The Archive Name (optional field) |
 | `captured_at` | ISO 8601 timestamp | yes | `"2026-07-05T22:14:03.912Z"` | Set at save time, not at photo-capture time |
-| `temp_filename` | string | yes | `"Five Forks - Good Poems - Box 3 - Folder 2 - 000004 - OMG.pdf"` | The filename the PDF was uploaded as |
+| `temp_filename` | string | yes | `"Good Poems - Five Forks - Box 3 - Folder 2 - 000004 - OMG.pdf"` | The filename the PDF was uploaded as |
 | `page_count` | string of an integer | yes | `"3"` | Number of photographed pages in this PDF |
 | `omg_pages` | JSON array string (0-indexed) | yes | `"[2]"` | Which pages (by index) were OMG-flagged |
 | `unmarked_backup_pages` | JSON array string (0-indexed) | yes | `"[0]"` | Which pages had markup — an unmarked duplicate of each such page is appended at the end of the PDF, and this lists which original-page indexes those backups correspond to |
@@ -66,7 +65,7 @@ Same practical shape, worth knowing it isn't written the same way.
   "collection": "Good Poems",
   "archive_name": "Five Forks",
   "captured_at": "2026-07-05T22:14:03.912Z",
-  "temp_filename": "Five Forks - Good Poems - Box 3 - Folder 2 - 000004 - OMG.pdf",
+  "temp_filename": "Good Poems - Five Forks - Box 3 - Folder 2 - 000004 - OMG.pdf",
   "page_count": "3",
   "omg_pages": "[2]",
   "unmarked_backup_pages": "[0]",

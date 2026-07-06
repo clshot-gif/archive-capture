@@ -54,7 +54,7 @@ export default function SettingsScreen({ navigation }) {
 
   async function handleCreateProject() {
     if (!newName.trim()) {
-      Alert.alert('Required', 'Please enter a project name.');
+      Alert.alert('Required', 'Please enter a collection name.');
       return;
     }
     setCreating(true);
@@ -114,7 +114,7 @@ export default function SettingsScreen({ navigation }) {
         </TouchableOpacity>
       </Section>
 
-      <Section title="Projects">
+      <Section title="Collections">
         {projects.map((p) => {
           const isActive = p.id === activeProjectId;
           return (
@@ -148,7 +148,7 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.newFormContainer}>
             <TextInput
               style={styles.newFormInput}
-              placeholder="Project Name"
+              placeholder="Collection Name"
               placeholderTextColor="#999"
               value={newName}
               onChangeText={setNewName}
@@ -157,7 +157,7 @@ export default function SettingsScreen({ navigation }) {
             />
             <TextInput
               style={[styles.newFormInput, { marginTop: 8 }]}
-              placeholder="Collection (optional)"
+              placeholder="Archive Name (optional)"
               placeholderTextColor="#999"
               value={newArchiveName}
               onChangeText={setNewArchiveName}
@@ -186,7 +186,7 @@ export default function SettingsScreen({ navigation }) {
           </View>
         ) : (
           <TouchableOpacity style={styles.row} onPress={() => setShowNewForm(true)}>
-            <Text style={styles.addProjectText}>+ New Project</Text>
+            <Text style={styles.addProjectText}>+ New Collection</Text>
           </TouchableOpacity>
         )}
       </Section>

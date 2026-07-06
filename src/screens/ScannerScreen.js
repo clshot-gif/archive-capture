@@ -246,7 +246,7 @@ export default function ScannerScreen({ route, navigation }) {
               onPress={() => navigation.navigate('Settings')}
             >
               <Text style={styles.projectBarText}>
-                {project.archiveName ? `${project.archiveName} - ${project.name}` : project.name}
+                {project.archiveName ? `${project.name} - ${project.archiveName}` : project.name}
               </Text>
             </TouchableOpacity>
             {project.driveFolderId ? (
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
   },
   settingsBtn: {
     position: 'absolute',
-    top: 56,
+    top: 92,
     right: 16,
   },
   settingsIcon: { fontSize: 24 },
