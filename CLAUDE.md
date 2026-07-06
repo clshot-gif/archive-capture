@@ -8,7 +8,9 @@ Built for a solo, non-technical researcher (Carter's wife) who carries her phone
 
 ## What the app does
 
-She photographs documents one at a time. Each photo becomes a single- or multi-page PDF with pen/highlighter markup baked in, tagged and saved to a Google Drive folder structure (`Archive Capture — Project / Box X / Folder Y / ...`), fully offline-capable and syncing when connectivity returns. A separate "Phase 2" system (not yet built — see `archive-capture-context-for-phase2.md` in the parent folder) will later read this corpus and do the heavier organizing/analysis work.
+She photographs documents one at a time. Each photo becomes a single- or multi-page PDF with pen/highlighter markup baked in, tagged and saved to a Google Drive folder structure (`Archive Capture — <Collection name> / Box X / Folder Y / ...`), fully offline-capable and syncing when connectivity returns. A separate "Phase 2" system (not yet built — see `archive-capture-context-for-phase2.md` in the parent folder) will later read this corpus and do the heavier organizing/analysis work; `docs/metadata-schema.md` documents exactly what metadata is attached to each PDF today, for that future conversation to work from.
+
+**There is no "Project" concept anywhere in the UI.** Every scan belongs to a **Collection** (required — the umbrella name for what she's building, e.g. "Good Poems") and optionally an **Archive Name** (where the physical documents actually live/came from, e.g. "Five Forks"). Internal code still uses `project.name`/`project.archiveName` as the underlying field names (harmless, not user-facing) — don't let that internal naming pull you back toward calling anything "Project" in labels, alerts, or screen text.
 
 ## Tech stack
 
@@ -24,18 +26,30 @@ She photographs documents one at a time. Each photo becomes a single- or multi-p
 
 ## Screens and current features
 
-- **Onboarding** — Google Sign-In → project name + optional archive name (called "Collection" in the UI) → Drive folder created → Create Tags step (skippable) → Scanner. Only fires on the very first-ever sign-in on a device — every subsequent project is created via Settings, which does **not** route through a tag-creation screen (see below).
-- **Scanner** — persistent box/folder text fields (explicit text/placeholder colors so they're never washed out), one-tap camera (captures cropped to match the on-screen preview's aspect ratio), active-project banner, offline-queue count banner. Camera closes automatically on navigating away, to avoid resuming a stale preview surface.
+- **Onboarding** — Google Sign-In → Collection name + optional Archive Name → Drive folder created → Create Tags step (skippable) → Scanner. Only fires on the very first-ever sign-in on a device — every subsequent collection is created via Settings, which does **not** route through a tag-creation screen (see below).
+- **Scanner** — top banner shows `Collection - Archive Name` (or just Collection if no Archive Name), tappable to Settings, plus a **Drive ›** link that opens that collection's Drive folder directly. Below that: a "take multiple photos before marking up" toggle (batch-capture mode — see below), the camera capture button, then larger Box/Folder text fields positioned under the button (the whole screen is wrapped in `KeyboardAvoidingView` so these fields slide up above the keyboard instead of being hidden). Settings gear icon bottom-right of the banner. Camera closes automatically on navigating away, to avoid resuming a stale preview surface.
+  - **Batch-capture mode**: toggle on, tap the shutter repeatedly — the camera stays open shot after shot instead of jumping to Markup each time. A **Done** button appears once ≥1 photo is queued; tapping it hands everything to Markup, where only the *last* photo is markable (OMG/pen/highlighter/comment) — earlier photos in the batch ride along unmarked, same mechanism as the existing "Keep Scanning" multi-page flow. Shared photo-processing logic lives in `src/utils/pageBuilder.js` (`buildPlainPageResult`), used by both this batch path and Markup's own per-page build.
 - **Markup** — pen + highlighter with undo, real pinch-to-zoom + two-finger pan (via gesture-handler), OMG flag (always-visible label, greyed out when off / red-white when on), typed comment, "Keep Scanning" for multi-page documents. Drawing coordinates are computed against the actual visible image rectangle (accounting for letterboxing), not the raw canvas box, so marks land in the same place on-screen and in the exported PDF.
-- **Confirmation** — tag checklist (add new tag inline, delete any current-project tag via ✕, pull in tags from any other project via the **Previous Tags** button), Done → PDF saved locally, always queued for background Drive upload. This is the *only* tags UI most projects ever get, since new projects made via Settings skip the onboarding tag screen.
-- **Settings** — switch between projects (`KeyboardAvoidingView`-wrapped so the new-project fields aren't hidden by the keyboard), reconnect Google Drive, edit tag vocabulary.
-- **Tag Vocabulary** — add/rename/delete tags for the active project, plus its own **Previous Tags** button (same picker component as Confirmation). Reached from Settings, or once from Onboarding.
+- **Confirmation** — tag checklist (add new tag inline, delete any current-collection tag via ✕, pull in tags from any other collection via the **Previous Tags** button), Done → PDF saved locally, always queued for background Drive upload, filename built as `Collection - Archive Name - Box - Folder - Number[ - OMG].pdf` (any missing field is skipped, not left as an empty placeholder). This is the *only* tags UI most collections ever get, since new collections made via Settings skip the onboarding tag screen.
+- **Settings** — switch between collections (section is titled "Collections"; "+ New Collection" form asks for "Collection Name" and "Archive Name (optional)" — fixed a real bug where this form used to mislabel the Archive Name field as "Collection (optional)"), reconnect Google Drive, edit tag vocabulary. `KeyboardAvoidingView`-wrapped so the new-collection fields aren't hidden by the keyboard.
+- **Tag Vocabulary** — add/rename/delete tags for the active collection, plus its own **Previous Tags** button (same picker component as Confirmation). Reached from Settings, or once from Onboarding.
 
-Multi-page documents, multi-project support, nested Drive folders, per-folder file numbering, per-project tags with a cross-project "Previous Tags" pool, and offline queueing are all implemented and working — don't assume they still need building.
+Multi-page documents, multi-collection support, nested Drive folders, per-folder file numbering, per-collection tags with a cross-collection "Previous Tags" pool, batch photo capture, and offline queueing are all implemented and working — don't assume they still need building.
 
-## Status as of 2026-07-05 — field-testing round complete, ready to hand off
+## Status as of 2026-07-05 — handed off, in active use, second round of polish shipped
 
-Every bug surfaced during the 2026-07-04/05 field-testing sessions has been fixed and confirmed working by Carter on the Pixel 10a test phone (see "Fixed this round" below). The app is in a genuinely usable state. What's left is **distribution to her phone**, not further bug-fixing — see "Handing this off to her" below for the concrete remaining steps.
+The app has been handed off — she's signed in on her own phone, created her own Collection, and is actively using it happily. Every bug from the 2026-07-04/05 field-testing sessions was fixed (see "Fixed this round" below), then a second same-day round added batch capture, fixed several UI issues she found in real use, and eliminated the confusing "Project" naming (see "Second round" below). All of it has shipped via `eas update` to the `preview` branch/channel and is live on both her phone and Carter's test phone.
+
+Both `fix/blank-pages-and-navigator` (the first round) and `feature/naming-batch-capture-ui` (the second round, this update) have been merged into `master` — `master` is the current baseline. Start any new work from a fresh branch off `master`.
+
+### Second round (later, same day) — batch capture, Collection/Archive Name rename, UI fixes
+
+- **Batch photo capture** — a Scanner-screen toggle lets her take several photos in a row without leaving the camera each time; see the Scanner bullet above and `src/utils/pageBuilder.js`.
+- **Filename convention changed** to `Collection - Archive Name - Box - Folder - Number[ - OMG].pdf` (was previously just `Box - Folder - Number[ OMG]`, then briefly `Archive Name - Project - Box - Folder - Number - OMG` before the Project→Collection rename below settled the final field order).
+- **Eliminated "Project" from the UI entirely**, renaming to Collection (required) / Archive Name (optional) — including fixing a real mislabeling bug where Settings' "new collection" form displayed the Archive Name field as "Collection (optional)". See the "no Project concept" callout near the top of this file.
+- **Scanner screen UI fixes from real-world use**: Box/Folder fields are bigger, moved under the camera button, and the whole screen is keyboard-avoiding so they don't get hidden while typing; the batch-mode toggle got real on/off contrast (`trackColor`/`thumbColor`) instead of looking like an inert dot; the Collection/Archive Name banner (which had visually disappeared under the status bar after an earlier edit removed the box/folder top bar that used to provide top clearance) is back with proper padding, plus a **Drive ›** shortcut link; the Settings gear icon was nudged down so it stops nearly overlapping that link.
+- **`docs/metadata-schema.md` added** — documents the exact Drive `properties` object attached to every uploaded PDF (from `ConfirmationScreen.js`'s `handleDone`), field-by-field with types and examples. Written for a future conversation about building a metadata browsing/filtering UI (the "Phase 2" system) — read it before designing that UI rather than re-deriving the schema from the code.
+- One transient glitch, not root-caused: while creating a fresh collection on her own phone, she briefly got a Drive "request access to a folder Carter owns" prompt with no code path that could explain it (no hardcoded folder IDs or sharing calls anywhere in the app). It resolved itself on retry and hasn't recurred. Worth watching for a repeat, not worth chasing further on a single occurrence.
 
 ### EAS Update workflow (new capability — use this before reaching for a full rebuild)
 
@@ -49,7 +63,7 @@ run from inside real WSL (not the Windows-side shell — there's a UNC-path bug 
 
 **Only do a full `eas build -p android --profile preview` + `adb install -r` when** a change touches native config: new native dependency, new Android permission, `app.config.js` plugin changes, `AndroidManifest.xml`-level changes, etc.
 
-### Fixed this round (2026-07-04 → 2026-07-05)
+### Fixed first round (2026-07-04 → 2026-07-05)
 
 - Blank/white pages — full-res camera photos were hitting a size limit in `expo-print`'s WebView. Fixed with an explicit resize to 1600px wide before base64-encoding (`MarkupScreen.js`).
 - Stale project-key bug — `AppNavigator.js` now calls `migrateProjectIfNeeded()` + `getActiveProject()` instead of the old single-project `loadProject()`, so projects don't vanish on cold start.
@@ -71,19 +85,25 @@ run from inside real WSL (not the Windows-side shell — there's a UNC-path bug 
 3. One report of a single page rendering way-zoomed-in and in landscape despite being shot in portrait, on the same page a few times, then not reproducing again after leaving and returning. Not root-caused — looked like a transient camera-session glitch rather than something in app code. Watch for a reproducible pattern before spending effort on it.
 4. Product question, not a bug: a lost/reset/reinstalled phone currently loses all local project/tag/box-folder setup (AsyncStorage is per-device, not cloud-synced) even though the actual scanned documents are always safe in Drive. Worth a future conversation about whether to back up project/tag config into Drive too.
 
-## Handing this off to her — what's actually left
+## Handoff — done
 
-The app itself is done for this round. Getting it onto her phone needs two things outside the codebase, both one-time:
+She's installed, signed in, created her own Collection, and is actively scanning. Nothing left to do here. Kept for reference in case the app ever needs to go on a *new* device (hers or someone else's) again:
 
-1. **Add her Google account as an OAuth test user (Carter must do this — not something Claude can do).** This app's Google Cloud project is unverified/in "Testing" publishing status, which restricts sign-in to an explicit allowlist regardless of who has the APK. Go to Google Cloud Console → project `526107030062` → APIs & Services → OAuth consent screen → Test users → **Add users** → enter her Gmail address → Save. Without this, her sign-in will fail even with a working install.
-   - Expect an "unverified app" warning screen the first time she signs in (normal for a personal app that hasn't gone through Google's verification review) — she'll need to tap "Advanced" → "Go to Archive Capture (unsafe)" once. Not a bug, just what unverified OAuth apps look like.
-2. **Get the APK onto her phone.** No Play Store involved — it's a direct install. The current build's install link (works in any browser, no Expo login needed):
-   `https://expo.dev/artifacts/eas/zbUhKoQsq-nkrev_hSk3dffsk8rMli2hWjCFhNHqAvk.apk`
-   Send her that link (text/email/however) to open on her own phone — it downloads and Android will prompt to install (she'll need to allow "install unknown apps" for whichever app she opens it with, one-time). This link is tied to EAS build `7def09ee-50f1-4b77-8a9c-14d9f1a7eb4f` and expires roughly 30 days after it was built (created 2026-07-05) — fine for "next week," but if this ever needs to be re-sent much later, re-run `eas build -p android --profile preview` first to get a fresh link.
+1. **Add the Google account as an OAuth test user (Carter must do this — not something Claude can do).** This app's Google Cloud project is unverified/in "Testing" publishing status, which restricts sign-in to an explicit allowlist regardless of who has the APK. Go to Google Cloud Console → project `526107030062` → APIs & Services → OAuth consent screen → Test users → **Add users** → enter the Gmail address → Save. Without this, sign-in fails even with a working install.
+   - Expect an "unverified app" warning screen the first time anyone signs in on a new account (normal for a personal app that hasn't gone through Google's verification review) — tap "Advanced" → "Go to Archive Capture (unsafe)" once. Not a bug.
+2. **Get the APK onto the device.** No Play Store — direct install. The install link used for this round was tied to EAS build `7def09ee-50f1-4b77-8a9c-14d9f1a7eb4f` (built 2026-07-05) and expires ~30 days after building — if it's needed again later, re-run `eas build -p android --profile preview` first to get a fresh link, then send that.
 
-After that, her phone will behave like Carter's test phone: sign in, create her own project (Onboarding, since it's her first time), and every JS-only fix published since this build (all of the "Fixed this round" list above) will already be part of what she installs — no extra step needed, since the build embeds the current channel and will fetch anything published after it too.
+A fresh install always picks up everything published to the `preview` branch since it embeds the current channel and fetches anything newer on first launch.
 
-She does **not** need to be added to anything else — Drive access is scoped to files/folders her own account creates (`drive.file` scope), so her scans land in her own Drive, under her own new "Archive Capture — ..." folder, same as Carter's.
+No per-user Drive setup needed beyond the OAuth test-user step above — Drive access is scoped to files/folders each account creates itself (`drive.file` scope), so scans always land in that signed-in account's own Drive, under their own new "Archive Capture — ..." folder.
+
+## Next planned work — camera screen redesign (not started)
+
+Carter wants to cut down on taps during a scanning session, especially for "just flying through" a stack of documents. The plan: redesign `ScannerScreen.js` so the camera preview is **always live and full-bleed**, the same way `MarkupScreen.js` is always showing its photo full-bleed with a dark background and overlay toolbars — instead of today's two-state design where the main screen shows a big blue "Tap to Scan" button and a *separate* full-screen camera view only appears after tapping it (`showCamera` boolean toggling between two completely different layouts).
+
+Target flow: land on Scanner → camera is already live behind everything → tap a capture control → photo is taken immediately (no intermediate "open camera" tap) → either stays in live-camera view for the next shot (batch mode) or goes straight to Markup (normal mode). Very little thumb movement required per photo.
+
+This touches more than just the shutter button — everything that currently lives on the *pre-camera* Scanner screen (Collection/Archive Name banner + Drive link, batch-mode toggle, Box/Folder fields, settings gear, queue/page banners) needs a new home as an overlay on top of a permanently-live camera feed, the way Markup overlays its toolbar and action buttons on top of the photo. Worth treating as its own focused redesign rather than an incremental patch — a good candidate for a fresh chat/branch off `master`.
 
 ## Secret hygiene — read this before touching git
 
@@ -100,14 +120,18 @@ Carter doesn't have established git habits, so default to caution:
 - `git add <file>` then `git commit -m "message"` — saves a checkpoint. Use specific filenames, not `git add .`, so you don't accidentally include something you didn't mean to.
 - There is currently no remote (no GitHub) — everything lives only on this machine/WSL. That means there's no off-machine backup of commit history; worth keeping in mind.
 - Building for the phone is a separate step from git — `eas build -p android --profile preview` (via EAS Build, cloud-based) builds an installable APK from whatever is in this folder right now, committed or not. For most changes now, `eas update` (see above) is faster and doesn't need a rebuild or reinstall at all.
-- This round of work happened on branch `fix/blank-pages-and-navigator` — merge it into `master` once you're ready to consider it the new baseline.
+- `master` is the current baseline — both prior rounds (`fix/blank-pages-and-navigator`, `feature/naming-batch-capture-ui`) have been merged into it. Branch off `master` for the next round of work.
+- **Windows/WSL git gotcha worth knowing**: running `git` against this repo through its `\\wsl.localhost\...` UNC path (e.g. from a Windows-side shell) can hit a "detected dubious ownership" error the first time — fixed permanently with `git config --global --add safe.directory '%(prefix)///wsl.localhost/ubuntu/home/carter/projects/Organizer_Archives/archive-capture'` (a one-time trust setting, not a behavior change). Separately, `git log`/`git merge` without an explicit `-m`/`--no-edit` can hang indefinitely waiting on a pager or commit-message editor that has no terminal to talk to in this environment — always pass `--no-edit` on merges and avoid bare `git log` (pipe through `--no-pager` or redirect to a file) to avoid a stuck process.
 
 ## Where things are
 
 - App code: `archive-capture/` (this folder)
 - Design/planning docs: `archive-capture-dev-handoff.md`, `archive-capture-context-for-phase2.md`, `Archive Capture.pdf`, `archive-app-claude-code-spec.docx` — all one level up in `Organizer_Archives/`
+- `docs/metadata-schema.md` — the exact Drive `properties` metadata schema attached to every uploaded PDF; read before designing any future metadata browsing/filtering UI
 - `src/config/Config.js` — Google Client ID (not secret) and the Drive folder naming prefix
 - `src/services/DriveService.js` — all Drive API calls, including nested Box/Folder subfolder creation (`findOrCreateChildFolder`, `resolveDestinationFolder`)
-- `src/services/StorageService.js` — all local AsyncStorage reads/writes, including per-scope file counters and per-project + cross-project tag storage
-- `src/services/UploadQueueService.js` — offline queue processor (per-item folder resolution, no longer has the old "wrong active project" bug)
-- `src/components/PreviousTagsModal.js` — shared cross-project tag picker, used by both Confirmation and Tag Vocabulary screens
+- `src/services/StorageService.js` — all local AsyncStorage reads/writes, including per-scope file counters and per-collection + cross-collection tag storage
+- `src/services/UploadQueueService.js` — offline queue processor (per-item folder resolution, no longer has the old "wrong active collection" bug)
+- `src/components/PreviousTagsModal.js` — shared cross-collection tag picker, used by both Confirmation and Tag Vocabulary screens
+- `src/utils/pageBuilder.js` — shared photo downscale/base64 step (`buildPlainPageResult`), used by Markup's per-page build and Scanner's batch-capture path
+- `src/screens/ScannerScreen.js` — the file the next planned camera redesign (see above) will focus on
