@@ -6,7 +6,7 @@ import {
 import { PanResponder } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State as GHState } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { buildPlainPageResult } from '../utils/pageBuilder';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MIN_ZOOM = 1;
@@ -180,20 +180,10 @@ export default function MarkupScreen({ route, navigation }) {
       )
       .join('\n');
 
-    // Downscale before embedding as base64 — full-res camera photos (4000px+ on
-    // modern phones) can silently fail to render as a data: URI <img> in the
-    // expo-print WebView, producing a blank page. 1600px wide is plenty for a
-    // scanned document and keeps the HTML payload small.
-    const manipResult = await ImageManipulator.manipulateAsync(
-      photoUri,
-      [{ resize: { width: 1600 } }],
-      { format: ImageManipulator.SaveFormat.JPEG, base64: true, compress: 0.8 }
-    );
+    const base = await buildPlainPageResult(photoUri);
 
     return {
-      base64Image: manipResult.base64,
-      imageWidth: manipResult.width,
-      imageHeight: manipResult.height,
+      ...base,
       svgMarkup,
       svgViewBox: `0 0 ${imgLayout.width} ${imgLayout.height}`,
       omg,

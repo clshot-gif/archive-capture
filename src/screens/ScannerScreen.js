@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Dimensions,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Dimensions, Switch,
+  KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -9,6 +10,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as StorageService from '../services/StorageService';
 import * as UploadQueueService from '../services/UploadQueueService';
 import * as DriveService from '../services/DriveService';
+import { buildPlainPageResult } from '../utils/pageBuilder';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SCREEN_ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT;
@@ -48,6 +50,8 @@ export default function ScannerScreen({ route, navigation }) {
   const [folder, setFolder] = useState('');
   const [queueCount, setQueueCount] = useState(0);
   const [showCamera, setShowCamera] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchPhotos, setBatchPhotos] = useState([]);
   const [permission, requestPermission] = useCameraPermissions();
   const [project, setProject] = useState(null);
   const cameraRef = useRef(null);
@@ -143,6 +147,13 @@ export default function ScannerScreen({ route, navigation }) {
         base64: false,
       });
       const cropped = await cropToScreenAspect(photo);
+
+      if (batchMode) {
+        // Stay in the camera view for the next shot instead of jumping to Markup.
+        setBatchPhotos((prev) => [...prev, cropped.uri]);
+        return;
+      }
+
       setShowCamera(false);
       navigation.navigate('Markup', {
         photoUri: cropped.uri,
@@ -155,6 +166,38 @@ export default function ScannerScreen({ route, navigation }) {
     }
   }
 
+  function openDriveFolder(folderId) {
+    if (folderId) {
+      Linking.openURL(`https://drive.google.com/drive/folders/${folderId}`);
+    }
+  }
+
+  function cancelCamera() {
+    setShowCamera(false);
+    setBatchPhotos([]);
+  }
+
+  // Only the last photo of a batch goes to Markup as the markable page —
+  // the rest are saved as unmarked pages ahead of it.
+  async function handleBatchDone() {
+    if (batchPhotos.length === 0) return;
+    setShowCamera(false);
+    const lastUri = batchPhotos[batchPhotos.length - 1];
+    const earlierUris = batchPhotos.slice(0, -1);
+    setBatchPhotos([]);
+    try {
+      const earlierPageResults = await Promise.all(earlierUris.map(buildPlainPageResult));
+      navigation.navigate('Markup', {
+        photoUri: lastUri,
+        box: box.trim(),
+        folder: folder.trim(),
+        pages: [...pages, ...earlierPageResults],
+      });
+    } catch (err) {
+      Alert.alert('Error', 'Could not process batch photos: ' + err.message);
+    }
+  }
+
   if (showCamera) {
     return (
       <View style={{ flex: 1 }}>
@@ -163,119 +206,158 @@ export default function ScannerScreen({ route, navigation }) {
           style={{ flex: 1 }}
           facing="back"
         />
+        {batchMode && batchPhotos.length > 0 && (
+          <View style={styles.batchCountBadge}>
+            <Text style={styles.batchCountText}>
+              {batchPhotos.length} photo{batchPhotos.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
+        )}
         <View style={styles.cameraControls}>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCamera(false)}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={cancelCamera}>
             <Text style={styles.cancelText}>✕</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.shutterBtn} onPress={takePicture}>
             <View style={styles.shutterInner} />
           </TouchableOpacity>
-          <View style={{ width: 48 }} />
+          {batchMode && batchPhotos.length > 0 ? (
+            <TouchableOpacity style={styles.doneBatchBtn} onPress={handleBatchDone}>
+              <Text style={styles.doneBatchText}>Done</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 48 }} />
+          )}
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Top bar: Box + Folder */}
-      <View style={styles.topBar}>
-        <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>Box</Text>
-          <TextInput
-            style={styles.fieldInput}
-            value={box}
-            onChangeText={setBox}
-            keyboardType="default"
-            placeholder="—"
-            placeholderTextColor="#999"
-            returnKeyType="next"
-          />
-        </View>
-        <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>Folder</Text>
-          <TextInput
-            style={styles.fieldInput}
-            value={folder}
-            onChangeText={setFolder}
-            keyboardType="default"
-            placeholder="—"
-            placeholderTextColor="#999"
-            returnKeyType="done"
-          />
-        </View>
-      </View>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <View style={styles.container}>
+        {/* Active project label */}
+        {project && (
+          <View style={styles.projectBar}>
+            <TouchableOpacity
+              style={styles.projectBarMain}
+              onPress={() => navigation.navigate('Settings')}
+            >
+              <Text style={styles.projectBarText}>
+                {project.archiveName ? `${project.name} - ${project.archiveName}` : project.name}
+              </Text>
+            </TouchableOpacity>
+            {project.driveFolderId ? (
+              <TouchableOpacity onPress={() => openDriveFolder(project.driveFolderId)}>
+                <Text style={styles.driveLinkText}>Drive ›</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
 
-      {/* Active project label */}
-      {project && (
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={styles.projectBar}>
-          <Text style={styles.projectBarText}>Project: {project.name}</Text>
+        {/* Queue indicator */}
+        {queueCount > 0 && (
+          <View style={styles.queueBanner}>
+            <Text style={styles.queueText}>
+              {queueCount} waiting to sync…
+            </Text>
+          </View>
+        )}
+
+        {/* Multi-page indicator */}
+        {pages.length > 0 && (
+          <View style={styles.pageBanner}>
+            <Text style={styles.pageText}>
+              Page {pages.length + 1} — tap to add
+            </Text>
+          </View>
+        )}
+
+        {/* Camera button */}
+        <View style={styles.center}>
+          <View style={styles.batchToggleRow}>
+            <Text style={styles.batchToggleLabel}>Take multiple photos before marking up</Text>
+            <Switch
+              value={batchMode}
+              onValueChange={setBatchMode}
+              trackColor={{ false: '#999', true: '#1565C0' }}
+              thumbColor="#fff"
+              ios_backgroundColor="#999"
+            />
+          </View>
+
+          <TouchableOpacity style={styles.cameraBtn} onPress={handleCapture}>
+            <Text style={styles.cameraBtnIcon}>📷</Text>
+            <Text style={styles.cameraBtnLabel}>Tap to Scan</Text>
+          </TouchableOpacity>
+
+          {/* Box + Folder — placed under the camera button so they're hard to miss */}
+          <View style={styles.fieldsBar}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Box</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={box}
+                onChangeText={setBox}
+                keyboardType="default"
+                placeholder="—"
+                placeholderTextColor="#999"
+                returnKeyType="next"
+              />
+            </View>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Folder</Text>
+              <TextInput
+                style={styles.fieldInput}
+                value={folder}
+                onChangeText={setFolder}
+                keyboardType="default"
+                placeholder="—"
+                placeholderTextColor="#999"
+                returnKeyType="done"
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Settings */}
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => navigation.navigate('Settings')}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
         </TouchableOpacity>
-      )}
-
-      {/* Queue indicator */}
-      {queueCount > 0 && (
-        <View style={styles.queueBanner}>
-          <Text style={styles.queueText}>
-            {queueCount} waiting to sync…
-          </Text>
-        </View>
-      )}
-
-      {/* Multi-page indicator */}
-      {pages.length > 0 && (
-        <View style={styles.pageBanner}>
-          <Text style={styles.pageText}>
-            Page {pages.length + 1} — tap to add
-          </Text>
-        </View>
-      )}
-
-      {/* Camera button */}
-      <View style={styles.center}>
-        <TouchableOpacity style={styles.cameraBtn} onPress={handleCapture}>
-          <Text style={styles.cameraBtnIcon}>📷</Text>
-          <Text style={styles.cameraBtnLabel}>Tap to Scan</Text>
-        </TouchableOpacity>
       </View>
-
-      {/* Settings */}
-      <TouchableOpacity
-        style={styles.settingsBtn}
-        onPress={() => navigation.navigate('Settings')}
-      >
-        <Text style={styles.settingsIcon}>⚙️</Text>
-      </TouchableOpacity>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  topBar: {
+  fieldsBar: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    gap: 16,
+    marginTop: 40,
+    paddingHorizontal: 24,
+    gap: 20,
+    width: '100%',
   },
   fieldGroup: { flex: 1 },
   fieldLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#888',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#555',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 2,
+    marginBottom: 6,
   },
   fieldInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 15,
+    borderWidth: 2,
+    borderColor: '#bbb',
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 22,
     color: '#222',
     backgroundColor: '#fafafa',
   },
@@ -305,6 +387,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  batchToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  batchToggleLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: '#555',
+    textAlign: 'right',
+  },
   cameraBtn: {
     width: 200,
     height: 200,
@@ -327,7 +422,7 @@ const styles = StyleSheet.create({
   },
   settingsBtn: {
     position: 'absolute',
-    top: 56,
+    top: 92,
     right: 16,
   },
   settingsIcon: { fontSize: 24 },
@@ -349,6 +444,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  batchCountBadge: {
+    position: 'absolute',
+    top: 56,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+  },
+  batchCountText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  doneBatchBtn: {
+    width: 64,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#1565C0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  doneBatchText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   shutterBtn: {
     width: 80,
     height: 80,
@@ -365,16 +479,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   projectBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#E8EAF6',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 10,
+    paddingLeft: 16,
+    paddingRight: 48,
     borderBottomWidth: 1,
     borderBottomColor: '#C5CAE9',
   },
+  projectBarMain: { flex: 1 },
   projectBarText: {
     fontSize: 13,
     color: '#1A237E',
     fontWeight: '600',
-    textAlign: 'center',
+  },
+  driveLinkText: {
+    fontSize: 13,
+    color: '#1565C0',
+    fontWeight: '600',
+    marginLeft: 12,
   },
 });

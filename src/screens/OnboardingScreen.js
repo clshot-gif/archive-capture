@@ -42,7 +42,7 @@ export default function OnboardingScreen({ navigation }) {
 
   async function handleCollectionSubmit() {
     if (!projectName.trim()) {
-      Alert.alert('Required', 'Please enter a project name.');
+      Alert.alert('Required', 'Please enter a collection name.');
       return;
     }
     setLoading(true);
@@ -91,9 +91,9 @@ export default function OnboardingScreen({ navigation }) {
       style={{ flex: 1 }}
     >
       <ScrollView contentContainerStyle={styles.form}>
-        <Text style={styles.title}>Set Up Your Project</Text>
+        <Text style={styles.title}>Set Up Your Collection</Text>
 
-        <Text style={styles.label}>Project Name</Text>
+        <Text style={styles.label}>Collection Name</Text>
         <TextInput
           style={styles.input}
           placeholder="e.g., Sophia Smith Collection"
