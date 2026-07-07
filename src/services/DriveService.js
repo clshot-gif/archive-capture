@@ -105,7 +105,7 @@ export async function uploadPDF({ localPath, filename, folderId, metadata }) {
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: filename, parents: [folderId], properties: flattenMetadata(metadata) }),
   });
-  if (!metaRes.ok) throw new Error(`Drive create failed: ${metaRes.status}`);
+  if (!metaRes.ok) throw new Error(`Drive create failed: ${metaRes.status} ${await metaRes.text()}`);
   const { id: fileId } = await metaRes.json();
 
   // Step 2: upload binary content natively (no base64 needed)
@@ -142,12 +142,27 @@ export async function updateFileMetadata(fileId, metadata) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Drive rejects the whole files.create call if any single properties value
+// exceeds its ~124-byte cap (see docs/metadata-schema.md) — this has already
+// caused a real silent-upload-failure incident once (a filename-convention
+// change made `temp_filename` long enough to tip over the limit for anyone
+// with a longer Archive/Collection name, and the file simply never uploaded,
+// forever, with no visible error). Truncate defensively so a future naming
+// or metadata change can't quietly break uploads the same way again.
+const MAX_PROPERTY_LENGTH = 120;
+
+function truncateForDriveProperty(value) {
+  if (value.length <= MAX_PROPERTY_LENGTH) return value;
+  return `${value.slice(0, MAX_PROPERTY_LENGTH - 1)}…`;
+}
+
 function flattenMetadata(meta) {
   // Drive properties values must be strings
   const result = {};
   for (const [k, v] of Object.entries(meta)) {
     if (v === null || v === undefined) continue;
-    result[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    const str = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    result[k] = truncateForDriveProperty(str);
   }
   return result;
 }

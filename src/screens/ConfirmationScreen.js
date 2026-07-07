@@ -26,10 +26,10 @@ function sanitizeForFilename(str) {
 
 function buildFileBaseName(archiveName, collectionName, box, folder, counter) {
   const parts = [];
-  if (archiveName) parts.push(`Archive ${sanitizeForFilename(archiveName)}`);
-  if (collectionName) parts.push(`Collection ${sanitizeForFilename(collectionName)}`);
-  if (box) parts.push(`Box ${sanitizeForFilename(box)}`);
-  if (folder) parts.push(`Folder ${sanitizeForFilename(folder)}`);
+  if (archiveName) parts.push(sanitizeForFilename(archiveName));
+  if (collectionName) parts.push(sanitizeForFilename(collectionName));
+  if (box) parts.push(sanitizeForFilename(box));
+  if (folder) parts.push(sanitizeForFilename(folder));
   parts.push(StorageService.formatCounter(counter));
   return parts.join(' - ');
 }
