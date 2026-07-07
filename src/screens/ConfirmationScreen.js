@@ -24,10 +24,10 @@ function sanitizeForFilename(str) {
   return String(str).trim().replace(/[\\/:*?"<>|]/g, '');
 }
 
-function buildFileBaseName(collectionName, archiveName, box, folder, counter) {
+function buildFileBaseName(archiveName, collectionName, box, folder, counter) {
   const parts = [];
-  if (collectionName) parts.push(sanitizeForFilename(collectionName));
-  if (archiveName) parts.push(sanitizeForFilename(archiveName));
+  if (archiveName) parts.push(`Archive ${sanitizeForFilename(archiveName)}`);
+  if (collectionName) parts.push(`Collection ${sanitizeForFilename(collectionName)}`);
   if (box) parts.push(`Box ${sanitizeForFilename(box)}`);
   if (folder) parts.push(`Folder ${sanitizeForFilename(folder)}`);
   parts.push(StorageService.formatCounter(counter));
@@ -220,7 +220,7 @@ export default function ConfirmationScreen({ route, navigation }) {
       const project = await StorageService.getActiveProject();
       const scopeKey = `${project?.id || 'noproject'}::${box || ''}::${folder || ''}`;
       const counter = await StorageService.getNextCounterForScope(scopeKey);
-      const baseName = buildFileBaseName(project?.name, project?.archiveName, box, folder, counter);
+      const baseName = buildFileBaseName(project?.archiveName, project?.name, box, folder, counter);
       const filename = isOMG ? `${baseName} - OMG.pdf` : `${baseName}.pdf`;
 
       const html = await buildPDF();
