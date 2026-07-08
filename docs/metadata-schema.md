@@ -36,7 +36,7 @@ don't change per-document.
 | `collection` | string | yes (may be `''`) | `"Good Poems"` | The Collection name (required field) |
 | `archive_name` | string | yes (may be `''`) | `"Five Forks"` | The Archive Name (optional field) |
 | `captured_at` | ISO 8601 timestamp | yes | `"2026-07-05T22:14:03.912Z"` | Set at save time, not at photo-capture time |
-| `temp_filename` | string | yes | `"Archive Five Forks - Collection Good Poems - Box 3 - Folder 2 - 000004 - OMG.pdf"` | The filename the PDF was uploaded as |
+| `temp_filename` | string | yes | `"Five Forks - Good Poems - 3 - 2 - 000004 - OMG.pdf"` | The filename the PDF was uploaded as |
 | `page_count` | string of an integer | yes | `"3"` | Number of photographed pages in this PDF |
 | `omg_pages` | JSON array string (0-indexed) | yes | `"[2]"` | Which pages (by index) were OMG-flagged |
 | `unmarked_backup_pages` | JSON array string (0-indexed) | yes | `"[0]"` | Which pages had markup — an unmarked duplicate of each such page is appended at the end of the PDF, and this lists which original-page indexes those backups correspond to |
@@ -65,7 +65,7 @@ Same practical shape, worth knowing it isn't written the same way.
   "collection": "Good Poems",
   "archive_name": "Five Forks",
   "captured_at": "2026-07-05T22:14:03.912Z",
-  "temp_filename": "Archive Five Forks - Collection Good Poems - Box 3 - Folder 2 - 000004 - OMG.pdf",
+  "temp_filename": "Five Forks - Good Poems - 3 - 2 - 000004 - OMG.pdf",
   "page_count": "3",
   "omg_pages": "[2]",
   "unmarked_backup_pages": "[0]",

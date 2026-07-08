@@ -58,13 +58,17 @@ This was the "next planned work" camera redesign flagged in the previous round, 
 
 Known compromise: the "save" icon uses the monochrome font-glyph version of the Google Drive logo (`MaterialCommunityIcons` "google-drive"), not the actual multi-color triangle logo — flagged to Carter as a possible follow-up if it bothers her in practice.
 
-### Fourth round (2026-07-07) — filename field order + labeling fix
+### Fourth round (2026-07-07 → 2026-07-08) — filename convention fix, then a real production incident it caused
 
-`buildFileBaseName` in `ConfirmationScreen.js` had two problems, both from the same root cause: Collection and Archive Name were pushed into the filename as bare sanitized strings, unlike Box/Folder which were always prefixed with their own field name (`Box 3`, `Folder 2`). That meant (a) the two segments were unlabeled, so a filename alone couldn't tell you which value was which without already knowing the convention, and (b) they were previously in the wrong order (Collection first, Archive Name second — should be Archive Name first). Fixed by swapping the argument/push order and adding `Archive `/`Collection ` labels to match the existing Box/Folder style:
+`buildFileBaseName` in `ConfirmationScreen.js` initially had two problems: Collection and Archive Name were pushed into the filename as bare sanitized strings in the wrong order (Collection first, should be Archive Name first). First fix attempt swapped the order and added `Archive `/`Collection ` labels to match Box/Folder's style — **this labeling was wrong per follow-up feedback and was reverted**; the actual wanted convention has no label words on any field, just bare values in order:
 
-`Archive <name> - Collection <name> - Box <n> - Folder <n> - Number[ - OMG].pdf`
+`Archive - Collection - Box - Folder - Number[ - OMG].pdf`
 
-Not yet shipped via `eas update` — this is a JS-only change, safe to ship that way once verified. `docs/metadata-schema.md`'s example `temp_filename` updated to match.
+**The labeled version caused a real incident** while briefly live: Hannah's uploads started silently, permanently failing — folders kept being created fine (a separate, short-named Drive call), but files never uploaded, with tens of files stuck in "waiting to sync" with no visible error, because the upload queue swallowed errors via `console.warn` + `continue`. Root cause, confirmed 2026-07-08: her Collection name was long, and adding the `Archive `/`Collection ` label words was enough extra length to break the upload — but the *real* constraint turned out to be the filename itself (used for the local file path, and as Drive's own `name` field on the create call), not just the `properties.temp_filename` copy of it. A first attempted fix (truncating only the `properties` values in `DriveService.js`'s `flattenMetadata`) did **not** resolve it, because it left the actual filename — the thing used for the local path and Drive's `name` field — uncapped. The real fix, now in `buildFileBaseName` itself: cap the combined filename at 100 characters at the source, so every downstream use of it (local path, Drive `name`, and the `properties.temp_filename` copy) is already safe. Confirmed resolved once shipped.
+
+Two lasting improvements from chasing this: `DriveService.js` now includes the actual Drive error response body in thrown errors (not just the bare HTTP status), and the Scanner screen's "waiting to sync" banner is now tappable, showing the real error for any stuck queue item instead of nothing — worth checking there first if this class of bug ever recurs, rather than guessing blind again.
+
+`docs/metadata-schema.md`'s example `temp_filename` updated to match the final (unlabeled) convention.
 
 ### Second round (later, same day) — batch capture, Collection/Archive Name rename, UI fixes
 

@@ -24,6 +24,17 @@ function sanitizeForFilename(str) {
   return String(str).trim().replace(/[\\/:*?"<>|]/g, '');
 }
 
+// Confirmed real incident (2026-07-08): a long Collection name pushed the
+// combined filename long enough that Drive's file upload silently and
+// permanently failed (the file saves locally and queues fine — no visible
+// error — it only fails once the queue tries to actually upload it, so it
+// looked exactly like a network/sync problem instead of a naming one).
+// Truncating just the Drive `properties` copy of the filename wasn't
+// enough, since the *actual* filename — used for the local file path and
+// as Drive's own `name` field, not just the properties copy — was still
+// long. Cap it at the source so every use of it is already safe.
+const MAX_FILENAME_LENGTH = 100;
+
 function buildFileBaseName(archiveName, collectionName, box, folder, counter) {
   const parts = [];
   if (archiveName) parts.push(sanitizeForFilename(archiveName));
@@ -31,7 +42,8 @@ function buildFileBaseName(archiveName, collectionName, box, folder, counter) {
   if (box) parts.push(sanitizeForFilename(box));
   if (folder) parts.push(sanitizeForFilename(folder));
   parts.push(StorageService.formatCounter(counter));
-  return parts.join(' - ');
+  const joined = parts.join(' - ');
+  return joined.length > MAX_FILENAME_LENGTH ? joined.slice(0, MAX_FILENAME_LENGTH) : joined;
 }
 
 // expo-print renders each `.page` div against a real fixed PDF page size, not
