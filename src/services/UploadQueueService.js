@@ -31,6 +31,10 @@ export async function processQueue() {
         await StorageService.removeFromQueue(item.localPath);
       } catch (err) {
         console.warn('Queue upload failed for', item.filename, err);
+        await StorageService.updateQueueItemStatus(item.localPath, {
+          lastError: err.message,
+          lastAttemptAt: new Date().toISOString(),
+        });
         continue; // Skip failed item; try remaining items
       }
     }

@@ -145,6 +145,23 @@ export default function ScannerScreen({ route, navigation }) {
     setQueueCount(queue.length);
   }
 
+  async function showQueueDetails() {
+    const queue = await StorageService.loadQueue();
+    const failing = queue.filter((item) => item.lastError);
+    if (failing.length === 0) {
+      Alert.alert('Waiting to sync', `${queue.length} file(s) queued, no errors yet — will upload once there's a connection.`);
+      return;
+    }
+    const lines = failing
+      .slice(0, 5)
+      .map((item) => `${item.filename}:\n${item.lastError}`)
+      .join('\n\n');
+    Alert.alert(
+      'Sync problem',
+      `${failing.length} of ${queue.length} file(s) are failing to upload:\n\n${lines}${failing.length > 5 ? '\n\n…and more.' : ''}`
+    );
+  }
+
   async function takePicture() {
     if (!cameraRef.current || capturing) return;
     setCapturing(true);
@@ -245,13 +262,13 @@ export default function ScannerScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Queue indicator */}
+        {/* Queue indicator — tap to see why, if anything's actually failing */}
         {queueCount > 0 && (
-          <View style={styles.queueBanner}>
+          <TouchableOpacity style={styles.queueBanner} onPress={showQueueDetails}>
             <Text style={styles.queueText}>
-              {queueCount} waiting to sync…
+              {queueCount} waiting to sync… (tap for details)
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
 
         {/* Multi-page indicator */}
