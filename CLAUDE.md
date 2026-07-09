@@ -141,8 +141,12 @@ confirmation before Carter merges it — nothing else on it is at risk, but it's
 yours to decide on.
 
 **2026-07-09 (later) — the structural fixes landed on branch `fable/structural-fixes`**
-(based on `feature/live-camera-scanner`, awaiting Carter's review/merge — NOT yet
-shipped via `eas update`):
+(based on `feature/live-camera-scanner`, awaiting Carter's review/merge — **shipped
+via `eas update` to the `preview` channel**, update group
+`180b27ba-537c-4697-959e-1c284e1b0df9` @ commit `d18debc`; phones apply it after
+being closed and reopened twice). ESLint is also set up now: `npm run lint`
+(eslint-config-expo; `react-hooks/refs` and `set-state-in-effect` off with rationale
+in `eslint.config.js`). The branch also includes:
 - **Drive properties are no longer truncated.** `flattenMetadata` splits oversized
   values losslessly across continuation properties (`typed_comments`, `typed_comments~1`,
   …) using `src/utils/driveProps.js` — a contract file kept **byte-identical** with
