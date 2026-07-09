@@ -3,6 +3,7 @@
 // mirror lives in review-ui/src/lib/__tests__/driveProps.test.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

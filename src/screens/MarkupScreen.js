@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet, Alert,
-  TextInput, Modal, ActivityIndicator, Dimensions, Animated,
+  TextInput, Modal, ActivityIndicator, Dimensions, Animated, PanResponder,
 } from 'react-native';
-import { PanResponder } from 'react-native';
 import { PinchGestureHandler, PanGestureHandler, State as GHState } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';

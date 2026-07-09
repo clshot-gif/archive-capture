@@ -103,6 +103,9 @@ export default function ScannerScreen({ route, navigation }) {
     if (!permission?.granted) {
       requestPermission();
     }
+    // Mount-only by design: ask for camera permission once, not on every
+    // permission-object identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -138,6 +141,9 @@ export default function ScannerScreen({ route, navigation }) {
       netUnsub();
       UploadQueueService.setOnNewFailure(null);
     };
+    // loadState/refreshQueue are re-created per render; this effect is meant
+    // to run per navigation target only (they're invoked by its listeners).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
   async function loadState() {

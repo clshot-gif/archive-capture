@@ -56,7 +56,7 @@ export default function PreviousTagsModal({ visible, existingTags, onClose, onAd
         <View style={styles.box}>
           <Text style={styles.title}>Previous Tags</Text>
           <Text style={styles.subtitle}>
-            Tags you've used in any project. Select the ones to add here.
+            Tags you’ve used in any project. Select the ones to add here.
           </Text>
           <ScrollView style={styles.list}>
             {available.length === 0 ? (
