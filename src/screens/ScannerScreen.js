@@ -63,6 +63,7 @@ export default function ScannerScreen({ route, navigation }) {
   const [box, setBox] = useState('');
   const [folder, setFolder] = useState('');
   const [queueCount, setQueueCount] = useState(0);
+  const [failingCount, setFailingCount] = useState(0);
   const [goMode, setGoMode] = useState(false);
   const [batchPhotos, setBatchPhotos] = useState([]);
   const [capturing, setCapturing] = useState(false);
@@ -106,6 +107,18 @@ export default function ScannerScreen({ route, navigation }) {
 
   useEffect(() => {
     loadState();
+    // Announce an upload failure the first time it happens (per item), not
+    // just when she thinks to tap the banner — the silent-failure incident
+    // ran for days because nothing ever spoke up on its own.
+    UploadQueueService.setOnNewFailure((item, err) => {
+      refreshQueue();
+      Alert.alert(
+        'A scan couldn’t upload',
+        `“${item.filename}” hit a problem syncing to Drive:\n\n${err.message}\n\n` +
+          'It stays saved on the phone and will keep retrying. The sync banner up top ' +
+          'shows details anytime.'
+      );
+    });
     const unsub = navigation.addListener('focus', () => {
       loadState();
       refreshQueue();
@@ -120,7 +133,11 @@ export default function ScannerScreen({ route, navigation }) {
           .then(() => refreshQueue());
       }
     });
-    return () => { unsub(); netUnsub(); };
+    return () => {
+      unsub();
+      netUnsub();
+      UploadQueueService.setOnNewFailure(null);
+    };
   }, [navigation]);
 
   async function loadState() {
@@ -143,6 +160,7 @@ export default function ScannerScreen({ route, navigation }) {
   async function refreshQueue() {
     const queue = await StorageService.loadQueue();
     setQueueCount(queue.length);
+    setFailingCount(queue.filter((item) => item.lastError).length);
   }
 
   async function showQueueDetails() {
@@ -262,11 +280,19 @@ export default function ScannerScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Queue indicator — tap to see why, if anything's actually failing */}
+        {/* Queue indicator — turns red on its own when uploads are actually
+            failing (the old version looked identical whether the queue was
+            waiting for signal or permanently stuck — the incident where tens
+            of files silently failed for days hid behind exactly that). */}
         {queueCount > 0 && (
-          <TouchableOpacity style={styles.queueBanner} onPress={showQueueDetails}>
-            <Text style={styles.queueText}>
-              {queueCount} waiting to sync… (tap for details)
+          <TouchableOpacity
+            style={failingCount > 0 ? styles.queueBannerError : styles.queueBanner}
+            onPress={showQueueDetails}
+          >
+            <Text style={failingCount > 0 ? styles.queueTextError : styles.queueText}>
+              {failingCount > 0
+                ? `⚠ ${failingCount} of ${queueCount} can't upload — tap to see why`
+                : `${queueCount} waiting to sync… (tap for details)`}
             </Text>
           </TouchableOpacity>
         )}
@@ -453,6 +479,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#FFE0B2',
   },
   queueText: { fontSize: 13, color: '#E65100', textAlign: 'center' },
+  queueBannerError: {
+    backgroundColor: '#B71C1C',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#7F0000',
+  },
+  queueTextError: { fontSize: 13, color: '#FFFFFF', fontWeight: '700', textAlign: 'center' },
   pageBanner: {
     backgroundColor: '#E8EAF6',
     paddingVertical: 8,
