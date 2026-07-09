@@ -140,6 +140,26 @@ kept separate on purpose because that one commit is awaiting Hannah's on-device
 confirmation before Carter merges it — nothing else on it is at risk, but it's not
 yours to decide on.
 
+**2026-07-09 (later) — the structural fixes landed on branch `fable/structural-fixes`**
+(based on `feature/live-camera-scanner`, awaiting Carter's review/merge — NOT yet
+shipped via `eas update`):
+- **Drive properties are no longer truncated.** `flattenMetadata` splits oversized
+  values losslessly across continuation properties (`typed_comments`, `typed_comments~1`,
+  …) using `src/utils/driveProps.js` — a contract file kept **byte-identical** with
+  `review-ui/src/lib/driveProps.js`. It also owns the shared `MAX_FILENAME_LENGTH = 100`
+  (ConfirmationScreen imports it now). `docs/metadata-schema.md` documents the scheme.
+- **First test infrastructure**: `npm test` (node's built-in runner, zero new
+  dependencies) — behavior tests plus a byte-equality pin against review-ui's copy of
+  driveProps.js, so the two repos can't silently drift again. Run it after any change
+  to `driveProps.js`, and copy the file to the sibling repo when it changes.
+- **Uploads over 4MB use Drive's resumable protocol** (session init + native PUT)
+  instead of uploadType=media, which Google caps at 5MB (~15–30 GO MODE pages). Not
+  yet exercised against live Drive — watch the first big multi-page scan.
+- **Upload failures announce themselves**: the sync banner turns red on its own
+  (“N of M can't upload — tap to see why”) and a one-time alert fires the first time
+  an item fails, via `UploadQueueService.setOnNewFailure`. `lastError` behavior is
+  unchanged underneath.
+
 Otherwise, nothing else specific queued right now. Natural next steps once the current branch settles: merge `feature/live-camera-scanner` into `master` after a few days of real use, decide whether the monochrome Google Drive save-icon (see round three, above) needs upgrading to the real logo asset, and revisit the `CONTROL_ROW_BOTTOM` constant if the shared control-row height ever feels off on her actual phone.
 
 ## Secret hygiene — read this before touching git
