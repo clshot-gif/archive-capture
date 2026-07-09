@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import Config from '../config/Config';
+import { packProps } from '../utils/driveProps';
 
 let _accessToken = null;
 
@@ -98,6 +99,16 @@ export async function resolveDestinationFolder(rootFolderId, box, folder) {
 // Two-step upload: create metadata-only file, then PATCH binary content.
 // Uses FileSystem.uploadAsync for native binary upload (no base64 encoding).
 
+// Google caps uploadType=media "simple" uploads at 5MB. A long GO MODE
+// session can build a PDF past that (1600px JPEGs at 0.8 quality ≈ a few
+// hundred KB/page — roughly 15–30 pages), and the failure mode is the
+// filename-incident one: saves and queues fine on the phone, then the actual
+// upload fails every retry. Files over this threshold go through Drive's
+// resumable protocol instead (one extra request to open a session, then the
+// same native single-shot upload of the whole file — resumable sessions
+// accept the full content in one PUT and take files far beyond 5MB).
+const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
+
 export async function uploadPDF({ localPath, filename, folderId, metadata }) {
   // Step 1: create metadata-only file
   const metaRes = await fetch('https://www.googleapis.com/drive/v3/files', {
@@ -109,16 +120,44 @@ export async function uploadPDF({ localPath, filename, folderId, metadata }) {
   const { id: fileId } = await metaRes.json();
 
   // Step 2: upload binary content natively (no base64 needed)
-  const uploadRes = await FileSystem.uploadAsync(
-    `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
-    localPath,
-    {
-      httpMethod: 'PATCH',
-      headers: { ...authHeaders(), 'Content-Type': 'application/pdf' },
-      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+  const info = await FileSystem.getInfoAsync(localPath, { size: true });
+  const size = info?.size || 0;
+
+  let uploadUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
+  let httpMethod = 'PATCH';
+  if (size > SIMPLE_UPLOAD_LIMIT) {
+    const initRes = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=resumable`,
+      {
+        method: 'PATCH',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+          'X-Upload-Content-Type': 'application/pdf',
+          'X-Upload-Content-Length': String(size),
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    if (!initRes.ok) {
+      throw new Error(`Drive resumable init failed: ${initRes.status} ${await initRes.text()}`);
     }
-  );
-  if (uploadRes.status !== 200) throw new Error(`Drive upload failed: ${uploadRes.status}`);
+    const sessionUri = initRes.headers.get('location') || initRes.headers.get('Location');
+    if (!sessionUri) throw new Error('Drive resumable init returned no session URI');
+    uploadUrl = sessionUri;
+    httpMethod = 'PUT'; // session uploads take the content via PUT
+  }
+
+  const uploadRes = await FileSystem.uploadAsync(uploadUrl, localPath, {
+    httpMethod,
+    headers: { ...authHeaders(), 'Content-Type': 'application/pdf' },
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+  });
+  if (uploadRes.status !== 200 && uploadRes.status !== 201) {
+    throw new Error(
+      `Drive upload failed: ${uploadRes.status} ${String(uploadRes.body || '').slice(0, 300)}`
+    );
+  }
   return fileId;
 }
 
@@ -130,7 +169,7 @@ export async function updateFileMetadata(fileId, metadata) {
     {
       method: 'PATCH',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ properties: flattenMetadata(metadata) }),
+      body: JSON.stringify({ properties: flattenMetadata(metadata, { forUpdate: true }) }),
     }
   );
   if (!res.ok) {
@@ -147,23 +186,25 @@ export async function updateFileMetadata(fileId, metadata) {
 // caused a real silent-upload-failure incident once (a filename-convention
 // change made `temp_filename` long enough to tip over the limit for anyone
 // with a longer Archive/Collection name, and the file simply never uploaded,
-// forever, with no visible error). Truncate defensively so a future naming
-// or metadata change can't quietly break uploads the same way again.
-const MAX_PROPERTY_LENGTH = 120;
-
-function truncateForDriveProperty(value) {
-  if (value.length <= MAX_PROPERTY_LENGTH) return value;
-  return `${value.slice(0, MAX_PROPERTY_LENGTH - 1)}…`;
-}
-
-function flattenMetadata(meta) {
+// forever, with no visible error).
+//
+// The old defense truncated the value with an ellipsis — which kept uploads
+// alive but silently destroyed data: a truncated typed_comments/tags is
+// invalid JSON, and review-ui's reader used to swallow that and show the
+// field as empty. Oversized values are now split losslessly across
+// continuation properties (typed_comments, typed_comments~1, …) by the same
+// packProps that review-ui writes and reassembles with — the scheme lives in
+// src/utils/driveProps.js, kept byte-identical between the two repos.
+function flattenMetadata(meta, { forUpdate = false } = {}) {
   // Drive properties values must be strings
-  const result = {};
+  const flat = {};
   for (const [k, v] of Object.entries(meta)) {
     if (v === null || v === undefined) continue;
-    const str = typeof v === 'object' ? JSON.stringify(v) : String(v);
-    result[k] = truncateForDriveProperty(str);
+    flat[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
   }
-  return result;
+  // forUpdate makes packProps clear stale continuation keys (Drive merges
+  // properties per-key on PATCH) — only relevant to updateFileMetadata;
+  // files.create has no stale keys to clear.
+  return packProps(flat, { forUpdate });
 }
 

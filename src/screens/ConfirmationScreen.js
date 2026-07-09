@@ -9,6 +9,7 @@ import * as StorageService from '../services/StorageService';
 import PreviousTagsModal from '../components/PreviousTagsModal';
 import useTagAutocomplete from '../hooks/useTagAutocomplete';
 import { CONTROL_ROW_BOTTOM, CONTROL_ROW_HEIGHT } from '../constants/layout';
+import { MAX_FILENAME_LENGTH } from '../utils/driveProps';
 
 function escapeHtml(str) {
   return str
@@ -33,7 +34,11 @@ function sanitizeForFilename(str) {
 // enough, since the *actual* filename — used for the local file path and
 // as Drive's own `name` field, not just the properties copy — was still
 // long. Cap it at the source so every use of it is already safe.
-const MAX_FILENAME_LENGTH = 100;
+// The cap itself (MAX_FILENAME_LENGTH, imported above) lives in
+// src/utils/driveProps.js — the contract file kept byte-identical with
+// review-ui's copy — because review-ui builds filenames to the same
+// convention and the two values drifting is exactly how this class of
+// incident happens.
 
 function buildFileBaseName(archiveName, collectionName, box, folder, counter) {
   const parts = [];

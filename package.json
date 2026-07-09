@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "node --experimental-detect-module --test src/utils/__tests__/"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
