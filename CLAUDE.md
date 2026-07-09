@@ -125,9 +125,22 @@ A fresh install always picks up everything published to the `preview` branch sin
 
 No per-user Drive setup needed beyond the OAuth test-user step above — Drive access is scoped to files/folders each account creates itself (`drive.file` scope), so scans always land in that signed-in account's own Drive, under their own new "Archive Capture — ..." folder.
 
-## Next planned work — not yet started
+## Next planned work
 
-Nothing specific queued right now. Natural next steps once the current branch settles: merge `feature/live-camera-scanner` into `master` after a few days of real use, decide whether the monochrome Google Drive save-icon (see round three, above) needs upgrading to the real logo asset, and revisit the `CONTROL_ROW_BOTTOM` constant if the shared control-row height ever feels off on her actual phone.
+**2026-07-09 — structural bug-fix phase handed off:** `../handoff-fable-structural-fixes.md`
+has a ranked wishlist of cross-repo (archive-capture + review-ui) structural issues —
+several are rooted here, including the Drive property-truncation vs. review-ui's
+lossless-chunking mismatch (a live silent-data-loss path), the 5MB simple-upload
+ceiling in `DriveService.js`, and the upload queue's `console.warn` + `continue` error
+swallowing. Start from **this branch** (`feature/live-camera-scanner`, currently
+`3bba200`) — it has every real, shipped fix referenced in the wishlist (filename cap,
+queue error surfacing). Do **not** touch or merge `fix/pixel7a-blank-pages`: it is
+this exact branch plus exactly one more commit (the pixel7a blank-page fix itself),
+kept separate on purpose because that one commit is awaiting Hannah's on-device
+confirmation before Carter merges it — nothing else on it is at risk, but it's not
+yours to decide on.
+
+Otherwise, nothing else specific queued right now. Natural next steps once the current branch settles: merge `feature/live-camera-scanner` into `master` after a few days of real use, decide whether the monochrome Google Drive save-icon (see round three, above) needs upgrading to the real logo asset, and revisit the `CONTROL_ROW_BOTTOM` constant if the shared control-row height ever feels off on her actual phone.
 
 ## Secret hygiene — read this before touching git
 
