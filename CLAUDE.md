@@ -2,6 +2,14 @@
 
 Read this first, before exploring the codebase. It exists so a future session (or a future you) doesn't have to re-derive what's already known. Keep it updated when things change materially — stale docs cost more than no docs.
 
+**This file (on `master`) predates the live-camera redesign and everything after it —
+`master` hasn't had `feature/live-camera-scanner` merged in yet, even though that
+branch's work has been live on real phones for days (deploys go out via `eas update`
+straight from a branch, independent of git merges). For current app state, read
+`CLAUDE.md` on `feature/live-camera-scanner` instead. For the active structural
+bug-fix phase (2026-07-09), see `../handoff-fable-structural-fixes.md` — start from
+`feature/live-camera-scanner`, not `master`.**
+
 ## Who this is for
 
 Built for a solo, non-technical researcher (Carter's wife) who carries her phone into physical archives and photographs documents. Carter is not a developer — he needs plain-language explanations of git/build/deploy steps, and wants proactive help avoiding secret leaks (API keys, OAuth credentials) since he doesn't have habits built around that yet.
