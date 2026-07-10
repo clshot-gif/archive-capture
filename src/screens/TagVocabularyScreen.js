@@ -6,6 +6,7 @@ import {
 import TagChip from '../components/TagChip';
 import PreviousTagsModal from '../components/PreviousTagsModal';
 import * as StorageService from '../services/StorageService';
+import useTagAutocomplete from '../hooks/useTagAutocomplete';
 
 export default function TagVocabularyScreen({ route, navigation }) {
   const fromOnboarding = route.params?.fromOnboarding ?? false;
@@ -14,6 +15,7 @@ export default function TagVocabularyScreen({ route, navigation }) {
   const [addingNew, setAddingNew] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [previousTagsVisible, setPreviousTagsVisible] = useState(false);
+  const tagSuggestions = useTagAutocomplete(newTagValue, tags);
 
   useEffect(() => {
     StorageService.getActiveProject().then((project) => {
@@ -23,7 +25,15 @@ export default function TagVocabularyScreen({ route, navigation }) {
   }, []);
 
   function deleteTag(index) {
-    setTags((prev) => prev.filter((_, i) => i !== index));
+    const tag = tags[index];
+    Alert.alert('Delete tag?', `Remove "${tag}" from this collection's tags.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => setTags((prev) => prev.filter((_, i) => i !== index)),
+      },
+    ]);
   }
 
   function renameTag(index, newLabel) {
@@ -45,6 +55,14 @@ export default function TagVocabularyScreen({ route, navigation }) {
       });
       return merged;
     });
+  }
+
+  // Tapping an autocomplete suggestion adds it straight away — no need to
+  // finish typing it out or go find it in Previous Tags.
+  function selectSuggestion(tag) {
+    addPreviousTags([tag]);
+    setNewTagValue('');
+    setAddingNew(false);
   }
 
   async function handleSave() {
@@ -86,19 +104,34 @@ export default function TagVocabularyScreen({ route, navigation }) {
         ))}
 
         {addingNew ? (
-          <View style={styles.newTagRow}>
-            <TextInput
-              style={styles.newTagInput}
-              value={newTagValue}
-              onChangeText={setNewTagValue}
-              placeholder="New tag…"
-              placeholderTextColor="#5B8DBB"
-              onSubmitEditing={addTag}
-              autoFocus
-            />
-            <TouchableOpacity onPress={addTag} style={styles.addConfirmBtn}>
-              <Text style={styles.addConfirmText}>Add</Text>
-            </TouchableOpacity>
+          <View style={styles.newTagWrap}>
+            <View style={styles.newTagRow}>
+              <TextInput
+                style={styles.newTagInput}
+                value={newTagValue}
+                onChangeText={setNewTagValue}
+                placeholder="New tag…"
+                placeholderTextColor="#5B8DBB"
+                onSubmitEditing={addTag}
+                autoFocus
+              />
+              <TouchableOpacity onPress={addTag} style={styles.addConfirmBtn}>
+                <Text style={styles.addConfirmText}>Add</Text>
+              </TouchableOpacity>
+            </View>
+            {tagSuggestions.length > 0 && (
+              <View style={styles.suggestionRow}>
+                {tagSuggestions.map((tag) => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={styles.suggestionChip}
+                    onPress={() => selectSuggestion(tag)}
+                  >
+                    <Text style={styles.suggestionText}>{tag}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         ) : (
           <TouchableOpacity
@@ -155,11 +188,26 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     paddingBottom: 24,
   },
+  newTagWrap: { margin: 4 },
   newTagRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    margin: 4,
   },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  suggestionChip: {
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+    backgroundColor: '#E3F2FD',
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  suggestionText: { color: '#1565C0', fontSize: 13, fontWeight: '600' },
   newTagInput: {
     borderWidth: 1,
     borderColor: '#90CAF9',

@@ -162,6 +162,17 @@ export async function removeFromQueue(localPath) {
   await AsyncStorage.setItem(KEYS.UPLOAD_QUEUE, JSON.stringify(filtered));
 }
 
+// Records why a queued item's last upload attempt failed, so a stuck queue
+// is diagnosable from the phone itself instead of requiring a dev console
+// (which she has no way to see on a preview build).
+export async function updateQueueItemStatus(localPath, { lastError, lastAttemptAt }) {
+  const queue = await loadQueue();
+  const updated = queue.map((item) =>
+    item.localPath === localPath ? { ...item, lastError, lastAttemptAt } : item
+  );
+  await AsyncStorage.setItem(KEYS.UPLOAD_QUEUE, JSON.stringify(updated));
+}
+
 export async function clearQueue() {
   await AsyncStorage.setItem(KEYS.UPLOAD_QUEUE, JSON.stringify([]));
 }

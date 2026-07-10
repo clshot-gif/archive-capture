@@ -35,20 +35,48 @@ She photographs documents one at a time. Each photo becomes a single- or multi-p
 ## Screens and current features
 
 - **Onboarding** — Google Sign-In → Collection name + optional Archive Name → Drive folder created → Create Tags step (skippable) → Scanner. Only fires on the very first-ever sign-in on a device — every subsequent collection is created via Settings, which does **not** route through a tag-creation screen (see below).
-- **Scanner** — top banner shows `Collection - Archive Name` (or just Collection if no Archive Name), tappable to Settings, plus a **Drive ›** link that opens that collection's Drive folder directly. Below that: a "take multiple photos before marking up" toggle (batch-capture mode — see below), the camera capture button, then larger Box/Folder text fields positioned under the button (the whole screen is wrapped in `KeyboardAvoidingView` so these fields slide up above the keyboard instead of being hidden). Settings gear icon bottom-right of the banner. Camera closes automatically on navigating away, to avoid resuming a stale preview surface.
-  - **Batch-capture mode**: toggle on, tap the shutter repeatedly — the camera stays open shot after shot instead of jumping to Markup each time. A **Done** button appears once ≥1 photo is queued; tapping it hands everything to Markup, where only the *last* photo is markable (OMG/pen/highlighter/comment) — earlier photos in the batch ride along unmarked, same mechanism as the existing "Keep Scanning" multi-page flow. Shared photo-processing logic lives in `src/utils/pageBuilder.js` (`buildPlainPageResult`), used by both this batch path and Markup's own per-page build.
-- **Markup** — pen + highlighter with undo, real pinch-to-zoom + two-finger pan (via gesture-handler), OMG flag (always-visible label, greyed out when off / red-white when on), typed comment, "Keep Scanning" for multi-page documents. Drawing coordinates are computed against the actual visible image rectangle (accounting for letterboxing), not the raw canvas box, so marks land in the same place on-screen and in the exported PDF.
-- **Confirmation** — tag checklist (add new tag inline, delete any current-collection tag via ✕, pull in tags from any other collection via the **Previous Tags** button), Done → PDF saved locally, always queued for background Drive upload, filename built as `Collection - Archive Name - Box - Folder - Number[ - OMG].pdf` (any missing field is skipped, not left as an empty placeholder). This is the *only* tags UI most collections ever get, since new collections made via Settings skip the onboarding tag screen.
+- **Scanner** — the camera preview is **always live** in a rounded box near the top (not full-bleed — just big enough to confirm framing/focus; shrinks further while the keyboard is open so it never covers Box/Folder). Top banner shows `Collection - Archive Name` (or just Collection if no Archive Name), tappable to Settings, plus a **Drive ›** link that opens that collection's Drive folder directly. Below the preview: larger Box/Folder text fields, a **GO MODE** toggle, and the shutter button — all pinned to a shared bottom offset (`src/constants/layout.js`'s `CONTROL_ROW_BOTTOM`/`CONTROL_ROW_HEIGHT`) so they line up with the equivalent row on Markup and Confirmation (see below). Settings gear is a separate floating button in the bottom-right corner (kept clear of the "waiting to sync" banner up top). Camera preview only renders while the screen is focused (`useIsFocused`), so navigating away and back never resumes a stale preview surface.
+  - **GO MODE** (renamed from the old "take multiple photos" toggle): toggle on, tap the shutter repeatedly — stays on this screen shot after shot instead of jumping to Markup each time. Once ≥1 photo is queued, **Retake** (undoes only the most recent shot) and **Save** (finishes the batch now) buttons appear flanking the shutter. Turning GO MODE off mid-batch does **not** discard the queued photos — the next regular-mode shot automatically finishes the batch as its last, markable page, same as tapping Save directly would. Shared photo-processing logic lives in `src/utils/pageBuilder.js` (`buildPlainPageResult`), used by both this batch path and Markup's own per-page build.
+- **Markup** — pen + highlighter with undo, real pinch-to-zoom + two-finger pan (via gesture-handler), OMG flag (always-visible label, greyed out when off / red-white when on), typed comment, "Keep Scanning" for multi-page documents. Drawing coordinates are computed against the actual visible image rectangle (accounting for letterboxing), not the raw canvas box, so marks land in the same place on-screen and in the exported PDF. The three action buttons (comment / keep scanning / save) are now icons (`@expo/vector-icons`: chat bubble, camera, Google Drive logo) floating over the full-bleed photo at the same pinned bottom offset as Scanner's shutter, instead of a text row at the very bottom. A **Retake** button (bottom-left, in the space that freed up) discards the current photo and returns to the live camera via `navigation.goBack()`.
+- **Confirmation** — tag checklist (add new tag inline — with type-ahead autocomplete suggestions from the all-time tag pool, tap one to add instantly — delete any current-collection tag via ✕ with a confirmation prompt, pull in tags from any other collection via the **Previous Tags** button), Done → PDF saved locally, always queued for background Drive upload, filename built as `Archive <name> - Collection <name> - Box <n> - Folder <n> - Number[ - OMG].pdf` (any missing field is skipped, not left as an empty placeholder; every field is labeled with what it is — Archive/Collection unlabeled was the ambiguity bug from a previous version). Done button is pinned to the same shared bottom offset as Scanner/Markup. This is the *only* tags UI most collections ever get, since new collections made via Settings skip the onboarding tag screen.
 - **Settings** — switch between collections (section is titled "Collections"; "+ New Collection" form asks for "Collection Name" and "Archive Name (optional)" — fixed a real bug where this form used to mislabel the Archive Name field as "Collection (optional)"), reconnect Google Drive, edit tag vocabulary. `KeyboardAvoidingView`-wrapped so the new-collection fields aren't hidden by the keyboard.
-- **Tag Vocabulary** — add/rename/delete tags for the active collection, plus its own **Previous Tags** button (same picker component as Confirmation). Reached from Settings, or once from Onboarding.
+- **Tag Vocabulary** — add/rename/delete tags for the active collection (delete now confirms first), type-ahead autocomplete on the new-tag input (same as Confirmation), plus its own **Previous Tags** button (same picker component as Confirmation, whose own pool-prune ✕ also now confirms before deleting). Reached from Settings, or once from Onboarding.
 
 Multi-page documents, multi-collection support, nested Drive folders, per-folder file numbering, per-collection tags with a cross-collection "Previous Tags" pool, batch photo capture, and offline queueing are all implemented and working — don't assume they still need building.
 
-## Status as of 2026-07-05 — handed off, in active use, second round of polish shipped
+## Status as of 2026-07-06 — live-camera Scanner redesign shipped, tag UX polish, GitHub connected
 
-The app has been handed off — she's signed in on her own phone, created her own Collection, and is actively using it happily. Every bug from the 2026-07-04/05 field-testing sessions was fixed (see "Fixed this round" below), then a second same-day round added batch capture, fixed several UI issues she found in real use, and eliminated the confusing "Project" naming (see "Second round" below). All of it has shipped via `eas update` to the `preview` branch/channel and is live on both her phone and Carter's test phone.
+The app has been handed off — she's signed in on her own phone, created her own Collection, and is actively using it happily. Every bug from the 2026-07-04/05 field-testing sessions was fixed, then a second same-day round added batch capture and eliminated the "Project" naming, then this third round (2026-07-06) delivered the previously-planned camera screen redesign plus a batch of real-use feedback fixes. All of it has shipped via `eas update` to the `preview` branch/channel and is live on both her phone and Carter's test phone.
 
-Both `fix/blank-pages-and-navigator` (the first round) and `feature/naming-batch-capture-ui` (the second round, this update) have been merged into `master` — `master` is the current baseline. Start any new work from a fresh branch off `master`.
+`fix/blank-pages-and-navigator` and `feature/naming-batch-capture-ui` (rounds one and two) are merged into `master`. **This round's work is on `feature/live-camera-scanner`, pushed to GitHub but not yet merged into `master`** — merge once she's confirmed it's solid in real use for a few days.
+
+### Third round (2026-07-06) — live-camera Scanner redesign, GO MODE, icon buttons, tag UX
+
+This was the "next planned work" camera redesign flagged in the previous round, done as its own branch per that note. Delivered in three passes as she tested on-device between each:
+
+1. **Scanner rebuilt around an always-live camera preview** (not full-bleed — a rounded box sized to confirm framing/focus) instead of the old two-state "Tap to Scan → separate full-screen camera" design. Permission is requested on mount instead of on first tap. The old "take multiple photos" toggle is renamed **GO MODE**.
+2. **Shared ergonomic control-row alignment** — Scanner's shutter, Markup's three action icons, and Confirmation's Done button are all pinned to the same distance from the screen's bottom edge (`src/constants/layout.js`), found by feel to sit lower than a first-draft mid-screen placement but higher than flush-bottom (like a native camera app). If this needs nudging, it's one constant (`CONTROL_ROW_BOTTOM`) shared by all three screens.
+3. **Markup's action row is now icons** (`@expo/vector-icons`: chat-bubble for comment, camera for keep-scanning, Google Drive logo for save) floating over the full-bleed photo, plus a new **Retake** button (bottom-left) that discards the current photo and goes back to the live camera.
+4. **GO MODE semantics fixed after first real use**: the discard button was clearing the *entire* batch, which felt wrong — renamed to **Retake** and now undoes only the most recent photo. Toggling GO MODE off mid-batch no longer discards queued photos; the next regular-mode shot finishes that batch as its final markable page (same code path as tapping the batch button directly, which was renamed **Save** to stop the two-different-meanings-of-"Done" confusion between finishing the photos vs. finishing GO MODE).
+5. **Keyboard covering Box/Folder fixed** — the preview box now shrinks to a small strip while the keyboard is open (cosmetic only; the crop aspect used for the actual saved photo is unaffected) so the fields stay visible above it.
+6. **Settings gear relocated** to the Scanner screen's bottom-right corner — it used to sit near the top and could get covered by the "waiting to sync" banner.
+7. **Tag management UX**: deleting a tag (per-collection, or from the cross-collection all-time pool via Previous Tags) now confirms first. Typing a new tag shows type-ahead suggestions from the all-time pool (`src/hooks/useTagAutocomplete.js`) — tap one to add it instantly instead of typing it out or hunting through Previous Tags.
+8. **The "marked up, original elsewhere" PDF banner text was enlarged** — the concern was someone not noticing it existed at all, which matters more than it covering a bit more of an already-marked-up photo.
+9. Added `@expo/vector-icons` as a new dependency (JS/font-asset only, no native rebuild needed — ships fine via `eas update`).
+
+Known compromise: the "save" icon uses the monochrome font-glyph version of the Google Drive logo (`MaterialCommunityIcons` "google-drive"), not the actual multi-color triangle logo — flagged to Carter as a possible follow-up if it bothers her in practice.
+
+### Fourth round (2026-07-07 → 2026-07-08) — filename convention fix, then a real production incident it caused
+
+`buildFileBaseName` in `ConfirmationScreen.js` initially had two problems: Collection and Archive Name were pushed into the filename as bare sanitized strings in the wrong order (Collection first, should be Archive Name first). First fix attempt swapped the order and added `Archive `/`Collection ` labels to match Box/Folder's style — **this labeling was wrong per follow-up feedback and was reverted**; the actual wanted convention has no label words on any field, just bare values in order:
+
+`Archive - Collection - Box - Folder - Number[ - OMG].pdf`
+
+**The labeled version caused a real incident** while briefly live: Hannah's uploads started silently, permanently failing — folders kept being created fine (a separate, short-named Drive call), but files never uploaded, with tens of files stuck in "waiting to sync" with no visible error, because the upload queue swallowed errors via `console.warn` + `continue`. Root cause, confirmed 2026-07-08: her Collection name was long, and adding the `Archive `/`Collection ` label words was enough extra length to break the upload — but the *real* constraint turned out to be the filename itself (used for the local file path, and as Drive's own `name` field on the create call), not just the `properties.temp_filename` copy of it. A first attempted fix (truncating only the `properties` values in `DriveService.js`'s `flattenMetadata`) did **not** resolve it, because it left the actual filename — the thing used for the local path and Drive's `name` field — uncapped. The real fix, now in `buildFileBaseName` itself: cap the combined filename at 100 characters at the source, so every downstream use of it (local path, Drive `name`, and the `properties.temp_filename` copy) is already safe. Confirmed resolved once shipped.
+
+Two lasting improvements from chasing this: `DriveService.js` now includes the actual Drive error response body in thrown errors (not just the bare HTTP status), and the Scanner screen's "waiting to sync" banner is now tappable, showing the real error for any stuck queue item instead of nothing — worth checking there first if this class of bug ever recurs, rather than guessing blind again.
+
+`docs/metadata-schema.md`'s example `temp_filename` updated to match the final (unlabeled) convention.
 
 ### Second round (later, same day) — batch capture, Collection/Archive Name rename, UI fixes
 
@@ -105,30 +133,63 @@ A fresh install always picks up everything published to the `preview` branch sin
 
 No per-user Drive setup needed beyond the OAuth test-user step above — Drive access is scoped to files/folders each account creates itself (`drive.file` scope), so scans always land in that signed-in account's own Drive, under their own new "Archive Capture — ..." folder.
 
-## Next planned work — camera screen redesign (not started)
+## Next planned work
 
-Carter wants to cut down on taps during a scanning session, especially for "just flying through" a stack of documents. The plan: redesign `ScannerScreen.js` so the camera preview is **always live and full-bleed**, the same way `MarkupScreen.js` is always showing its photo full-bleed with a dark background and overlay toolbars — instead of today's two-state design where the main screen shows a big blue "Tap to Scan" button and a *separate* full-screen camera view only appears after tapping it (`showCamera` boolean toggling between two completely different layouts).
+**2026-07-09 — structural bug-fix phase handed off:** `../handoff-fable-structural-fixes.md`
+has a ranked wishlist of cross-repo (archive-capture + review-ui) structural issues —
+several are rooted here, including the Drive property-truncation vs. review-ui's
+lossless-chunking mismatch (a live silent-data-loss path), the 5MB simple-upload
+ceiling in `DriveService.js`, and the upload queue's `console.warn` + `continue` error
+swallowing. Start from **this branch** (`feature/live-camera-scanner`, currently
+`3bba200`) — it has every real, shipped fix referenced in the wishlist (filename cap,
+queue error surfacing). Do **not** touch or merge `fix/pixel7a-blank-pages`: it is
+this exact branch plus exactly one more commit (the pixel7a blank-page fix itself),
+kept separate on purpose because that one commit is awaiting Hannah's on-device
+confirmation before Carter merges it — nothing else on it is at risk, but it's not
+yours to decide on.
 
-Target flow: land on Scanner → camera is already live behind everything → tap a capture control → photo is taken immediately (no intermediate "open camera" tap) → either stays in live-camera view for the next shot (batch mode) or goes straight to Markup (normal mode). Very little thumb movement required per photo.
+**2026-07-09 (later) — the structural fixes landed on branch `fable/structural-fixes`**
+(based on `feature/live-camera-scanner`, awaiting Carter's review/merge — **shipped
+via `eas update` to the `preview` channel**, update group
+`180b27ba-537c-4697-959e-1c284e1b0df9` @ commit `d18debc`; phones apply it after
+being closed and reopened twice). ESLint is also set up now: `npm run lint`
+(eslint-config-expo; `react-hooks/refs` and `set-state-in-effect` off with rationale
+in `eslint.config.js`). The branch also includes:
+- **Drive properties are no longer truncated.** `flattenMetadata` splits oversized
+  values losslessly across continuation properties (`typed_comments`, `typed_comments~1`,
+  …) using `src/utils/driveProps.js` — a contract file kept **byte-identical** with
+  `review-ui/src/lib/driveProps.js`. It also owns the shared `MAX_FILENAME_LENGTH = 100`
+  (ConfirmationScreen imports it now). `docs/metadata-schema.md` documents the scheme.
+- **First test infrastructure**: `npm test` (node's built-in runner, zero new
+  dependencies) — behavior tests plus a byte-equality pin against review-ui's copy of
+  driveProps.js, so the two repos can't silently drift again. Run it after any change
+  to `driveProps.js`, and copy the file to the sibling repo when it changes.
+- **Uploads over 4MB use Drive's resumable protocol** (session init + native PUT)
+  instead of uploadType=media, which Google caps at 5MB (~15–30 GO MODE pages). Not
+  yet exercised against live Drive — watch the first big multi-page scan.
+- **Upload failures announce themselves**: the sync banner turns red on its own
+  (“N of M can't upload — tap to see why”) and a one-time alert fires the first time
+  an item fails, via `UploadQueueService.setOnNewFailure`. `lastError` behavior is
+  unchanged underneath.
 
-This touches more than just the shutter button — everything that currently lives on the *pre-camera* Scanner screen (Collection/Archive Name banner + Drive link, batch-mode toggle, Box/Folder fields, settings gear, queue/page banners) needs a new home as an overlay on top of a permanently-live camera feed, the way Markup overlays its toolbar and action buttons on top of the photo. Worth treating as its own focused redesign rather than an incremental patch — a good candidate for a fresh chat/branch off `master`.
+Otherwise, nothing else specific queued right now. Natural next steps once the current branch settles: merge `feature/live-camera-scanner` into `master` after a few days of real use, decide whether the monochrome Google Drive save-icon (see round three, above) needs upgrading to the real logo asset, and revisit the `CONTROL_ROW_BOTTOM` constant if the shared control-row height ever feels off on her actual phone.
 
 ## Secret hygiene — read this before touching git
 
 Carter doesn't have established git habits, so default to caution:
 - **Never commit `Config.js` with a real secret value.** The Google Web Client ID in there is *not* secret (it's a public OAuth client identifier, safe to ship in an app) — but if any real API key is ever added to this file, don't commit it; use an untracked local file or environment variable instead.
-- **The Google OAuth `client_secret_*.json` file that lives loose in the parent `Organizer_Archives` folder is a real secret and is *not* inside this git repo** — keep it that way. It was a one-time download from Google Cloud Console; there's no ongoing need for the app to read it at runtime, so it doesn't need to be near the code at all. Consider moving it out of any folder that might ever become a repo.
-- `.gitignore` now has a safety net for `client_secret*.json`, `*credentials*.json`, `*service-account*.json`, and `.env` — so even if one of these lands in this folder by accident, git won't pick it up. Still don't rely on that as the only safeguard.
-- Before ever running `git add .` or pushing anywhere (especially if this repo ever gets a GitHub remote), run `git status` first and read the list — don't add blindly.
+- **The Google OAuth `client_secret_*.json` file has been moved to `~/secrets/` in real WSL** (outside `Organizer_Archives` entirely, so it can never end up inside a repo — it used to live loose in the parent `Organizer_Archives` folder, which wasn't a repo itself but was one accidental `git init` away from becoming a problem). It was a one-time download from Google Cloud Console; there's no ongoing need for the app to read it at runtime, so it doesn't need to be near the code at all.
+- `.gitignore` still has a safety net for `client_secret*.json`, `*credentials*.json`, `*service-account*.json`, and `.env` — so even if one of these lands in this folder by accident, git won't pick it up. Still don't rely on that as the only safeguard.
+- Before ever running `git add .` or pushing anywhere, run `git status` first and read the list — don't add blindly.
 
 ## Git basics for this project (plain language)
 
 - `git status` — shows what's changed since the last commit. Safe to run anytime, changes nothing.
 - `git diff` — shows the actual line-by-line changes not yet committed. Safe, read-only.
 - `git add <file>` then `git commit -m "message"` — saves a checkpoint. Use specific filenames, not `git add .`, so you don't accidentally include something you didn't mean to.
-- There is currently no remote (no GitHub) — everything lives only on this machine/WSL. That means there's no off-machine backup of commit history; worth keeping in mind.
+- **GitHub is connected as of 2026-07-06** — remote `origin` is `https://github.com/clshot-gif/archive-capture.git`. `master` and `feature/live-camera-scanner` are both pushed. Push happens through Windows Git's Credential Manager (not the `gh` CLI, which isn't installed — WSL `sudo` needs an interactive password Claude can't supply, so installing it needs Carter to run one command himself if it's ever wanted).
 - Building for the phone is a separate step from git — `eas build -p android --profile preview` (via EAS Build, cloud-based) builds an installable APK from whatever is in this folder right now, committed or not. For most changes now, `eas update` (see above) is faster and doesn't need a rebuild or reinstall at all.
-- `master` is the current baseline — both prior rounds (`fix/blank-pages-and-navigator`, `feature/naming-batch-capture-ui`) have been merged into it. Branch off `master` for the next round of work.
+- `master` is the current baseline — the first two rounds (`fix/blank-pages-and-navigator`, `feature/naming-batch-capture-ui`) are merged into it. `feature/live-camera-scanner` (this round) is pushed but not yet merged — see "Status" above.
 - **Windows/WSL git gotcha worth knowing**: running `git` against this repo through its `\\wsl.localhost\...` UNC path (e.g. from a Windows-side shell) can hit a "detected dubious ownership" error the first time — fixed permanently with `git config --global --add safe.directory '%(prefix)///wsl.localhost/ubuntu/home/carter/projects/Organizer_Archives/archive-capture'` (a one-time trust setting, not a behavior change). Separately, `git log`/`git merge` without an explicit `-m`/`--no-edit` can hang indefinitely waiting on a pager or commit-message editor that has no terminal to talk to in this environment — always pass `--no-edit` on merges and avoid bare `git log` (pipe through `--no-pager` or redirect to a file) to avoid a stuck process.
 
 ## Where things are
@@ -142,4 +203,6 @@ Carter doesn't have established git habits, so default to caution:
 - `src/services/UploadQueueService.js` — offline queue processor (per-item folder resolution, no longer has the old "wrong active collection" bug)
 - `src/components/PreviousTagsModal.js` — shared cross-collection tag picker, used by both Confirmation and Tag Vocabulary screens
 - `src/utils/pageBuilder.js` — shared photo downscale/base64 step (`buildPlainPageResult`), used by Markup's per-page build and Scanner's batch-capture path
-- `src/screens/ScannerScreen.js` — the file the next planned camera redesign (see above) will focus on
+- `src/hooks/useTagAutocomplete.js` — type-ahead tag suggestions from the all-time tag pool, used by Confirmation and Tag Vocabulary's new-tag inputs
+- `src/constants/layout.js` — the shared `CONTROL_ROW_BOTTOM`/`CONTROL_ROW_HEIGHT` that keep Scanner's shutter, Markup's action icons, and Confirmation's Done button aligned to the same ergonomic height
+- `src/screens/ScannerScreen.js` — always-live camera preview, GO MODE batch capture, Box/Folder fields

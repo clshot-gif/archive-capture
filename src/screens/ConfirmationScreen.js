@@ -7,6 +7,9 @@ import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as StorageService from '../services/StorageService';
 import PreviousTagsModal from '../components/PreviousTagsModal';
+import useTagAutocomplete from '../hooks/useTagAutocomplete';
+import { CONTROL_ROW_BOTTOM, CONTROL_ROW_HEIGHT } from '../constants/layout';
+import { MAX_FILENAME_LENGTH } from '../utils/driveProps';
 
 function escapeHtml(str) {
   return str
@@ -22,14 +25,30 @@ function sanitizeForFilename(str) {
   return String(str).trim().replace(/[\\/:*?"<>|]/g, '');
 }
 
-function buildFileBaseName(collectionName, archiveName, box, folder, counter) {
+// Confirmed real incident (2026-07-08): a long Collection name pushed the
+// combined filename long enough that Drive's file upload silently and
+// permanently failed (the file saves locally and queues fine — no visible
+// error — it only fails once the queue tries to actually upload it, so it
+// looked exactly like a network/sync problem instead of a naming one).
+// Truncating just the Drive `properties` copy of the filename wasn't
+// enough, since the *actual* filename — used for the local file path and
+// as Drive's own `name` field, not just the properties copy — was still
+// long. Cap it at the source so every use of it is already safe.
+// The cap itself (MAX_FILENAME_LENGTH, imported above) lives in
+// src/utils/driveProps.js — the contract file kept byte-identical with
+// review-ui's copy — because review-ui builds filenames to the same
+// convention and the two values drifting is exactly how this class of
+// incident happens.
+
+function buildFileBaseName(archiveName, collectionName, box, folder, counter) {
   const parts = [];
-  if (collectionName) parts.push(sanitizeForFilename(collectionName));
   if (archiveName) parts.push(sanitizeForFilename(archiveName));
-  if (box) parts.push(`Box ${sanitizeForFilename(box)}`);
-  if (folder) parts.push(`Folder ${sanitizeForFilename(folder)}`);
+  if (collectionName) parts.push(sanitizeForFilename(collectionName));
+  if (box) parts.push(sanitizeForFilename(box));
+  if (folder) parts.push(sanitizeForFilename(folder));
   parts.push(StorageService.formatCounter(counter));
-  return parts.join(' - ');
+  const joined = parts.join(' - ');
+  return joined.length > MAX_FILENAME_LENGTH ? joined.slice(0, MAX_FILENAME_LENGTH) : joined;
 }
 
 // expo-print renders each `.page` div against a real fixed PDF page size, not
@@ -67,6 +86,7 @@ export default function ConfirmationScreen({ route, navigation }) {
   const [previousTagsVisible, setPreviousTagsVisible] = useState(false);
 
   const isOMG = pages.some((p) => p.omg);
+  const tagSuggestions = useTagAutocomplete(newTagText, tags);
 
   useEffect(() => {
     StorageService.getActiveProject().then((project) => {
@@ -81,11 +101,20 @@ export default function ConfirmationScreen({ route, navigation }) {
     );
   }
 
-  async function deleteProjectTag(tag) {
-    const updated = tags.filter((t) => t !== tag);
-    setTags(updated);
-    setSelectedTags((prev) => prev.filter((t) => t !== tag));
-    await StorageService.saveTagsForProject(activeProjectId, updated);
+  function deleteProjectTag(tag) {
+    Alert.alert('Delete tag?', `Remove "${tag}" from this collection's tags.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const updated = tags.filter((t) => t !== tag);
+          setTags(updated);
+          setSelectedTags((prev) => prev.filter((t) => t !== tag));
+          await StorageService.saveTagsForProject(activeProjectId, updated);
+        },
+      },
+    ]);
   }
 
   async function addPreviousTags(selectedPreviousTags) {
@@ -111,6 +140,14 @@ export default function ConfirmationScreen({ route, navigation }) {
     setTags(updated);
     setSelectedTags((prev) => [...prev, trimmed]);
     await StorageService.saveTagsForProject(activeProjectId, updated);
+    setNewTagText('');
+    setAddingNew(false);
+  }
+
+  // Tapping an autocomplete suggestion adds it straight away — no need to
+  // finish typing it out or go find it in Previous Tags.
+  async function selectSuggestion(tag) {
+    await addPreviousTags([tag]);
     setNewTagText('');
     setAddingNew(false);
   }
@@ -179,7 +216,7 @@ export default function ConfirmationScreen({ route, navigation }) {
   .img-wrap { position:relative; width:100%; }
   img { width:100%; height:auto; display:block; }
   svg { position:absolute; top:0; left:0; width:100%; height:100%; }
-  .markup-banner { font-size:14px; font-weight:bold; text-align:center; padding:8px 12px; background:#fff3e0; border-bottom:3px solid #e65100; color:#bf360c; }
+  .markup-banner { font-size:24px; font-weight:bold; text-align:center; padding:12px; background:#fff3e0; border-bottom:4px solid #e65100; color:#bf360c; }
   .comment { font-size:14px; padding:8px 12px; background:#fffde7; border-top:2px solid #f9a825; }
   .notes-page { padding: 24px; }
   .notes-block { margin-bottom: 20px; }
@@ -200,7 +237,7 @@ export default function ConfirmationScreen({ route, navigation }) {
       const project = await StorageService.getActiveProject();
       const scopeKey = `${project?.id || 'noproject'}::${box || ''}::${folder || ''}`;
       const counter = await StorageService.getNextCounterForScope(scopeKey);
-      const baseName = buildFileBaseName(project?.name, project?.archiveName, box, folder, counter);
+      const baseName = buildFileBaseName(project?.archiveName, project?.name, box, folder, counter);
       const filename = isOMG ? `${baseName} - OMG.pdf` : `${baseName}.pdf`;
 
       const html = await buildPDF();
@@ -261,7 +298,7 @@ export default function ConfirmationScreen({ route, navigation }) {
       </View>
 
       <Text style={styles.sectionTitle}>Tags</Text>
-      <ScrollView contentContainerStyle={styles.tagArea}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.tagArea}>
         {tags.map((tag) => {
           const selected = selectedTags.includes(tag);
           return (
@@ -282,19 +319,34 @@ export default function ConfirmationScreen({ route, navigation }) {
         })}
 
         {addingNew ? (
-          <View style={styles.newTagRow}>
-            <TextInput
-              style={styles.newTagInput}
-              value={newTagText}
-              onChangeText={setNewTagText}
-              placeholder="New tag…"
-              placeholderTextColor="#999"
-              onSubmitEditing={addNewTag}
-              autoFocus
-            />
-            <TouchableOpacity onPress={addNewTag} style={styles.addConfirmBtn}>
-              <Text style={styles.addConfirmText}>Add</Text>
-            </TouchableOpacity>
+          <View style={styles.newTagWrap}>
+            <View style={styles.newTagRow}>
+              <TextInput
+                style={styles.newTagInput}
+                value={newTagText}
+                onChangeText={setNewTagText}
+                placeholder="New tag…"
+                placeholderTextColor="#999"
+                onSubmitEditing={addNewTag}
+                autoFocus
+              />
+              <TouchableOpacity onPress={addNewTag} style={styles.addConfirmBtn}>
+                <Text style={styles.addConfirmText}>Add</Text>
+              </TouchableOpacity>
+            </View>
+            {tagSuggestions.length > 0 && (
+              <View style={styles.suggestionRow}>
+                {tagSuggestions.map((tag) => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={styles.suggestionChip}
+                    onPress={() => selectSuggestion(tag)}
+                  >
+                    <Text style={styles.suggestionText}>{tag}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         ) : (
           <TouchableOpacity style={styles.addTagBtn} onPress={() => setAddingNew(true)}>
@@ -395,10 +447,10 @@ const styles = StyleSheet.create({
   checkmark: { color: '#fff', fontSize: 14, fontWeight: '700' },
   tagLabel: { fontSize: 15, color: '#333' },
   tagLabelSelected: { color: '#1565C0', fontWeight: '600' },
+  newTagWrap: { paddingVertical: 8 },
   newTagRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
   },
   newTagInput: {
     flex: 1,
@@ -417,6 +469,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   addConfirmText: { color: '#fff', fontWeight: '600' },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  suggestionChip: {
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+    backgroundColor: '#E3F2FD',
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  suggestionText: { color: '#1565C0', fontSize: 13, fontWeight: '600' },
   addTagBtn: {
     paddingVertical: 12,
   },
@@ -428,13 +495,22 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginHorizontal: 16,
+    // Clears the floating Done button below (same distance as its own
+    // height + CONTROL_ROW_BOTTOM, see src/constants/layout.js).
+    marginBottom: CONTROL_ROW_BOTTOM + CONTROL_ROW_HEIGHT,
   },
   previousTagsBtnText: { color: '#1565C0', fontSize: 15, fontWeight: '600' },
+  // Pinned to the same distance from the bottom edge as Scanner's shutter
+  // and Markup's action row so all three line up (see src/constants/layout.js).
   doneBtn: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: CONTROL_ROW_BOTTOM,
+    height: CONTROL_ROW_HEIGHT,
     backgroundColor: '#1565C0',
-    margin: 16,
-    padding: 16,
     borderRadius: 8,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   disabledBtn: { opacity: 0.6 },

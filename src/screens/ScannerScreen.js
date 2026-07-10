@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Dimensions, Switch,
-  KeyboardAvoidingView, Platform, Linking,
+  KeyboardAvoidingView, Platform, Linking, Keyboard,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useIsFocused } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import NetInfo from '@react-native-community/netinfo';
@@ -11,25 +13,37 @@ import * as StorageService from '../services/StorageService';
 import * as UploadQueueService from '../services/UploadQueueService';
 import * as DriveService from '../services/DriveService';
 import { buildPlainPageResult } from '../utils/pageBuilder';
+import { CONTROL_ROW_BOTTOM, CONTROL_ROW_HEIGHT } from '../constants/layout';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SCREEN_ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT;
 
-// The camera preview fills the screen with a "cover" crop, but
+// The live preview box is deliberately smaller than the full screen (just
+// enough to confirm framing/focus), not full-bleed like MarkupScreen's photo
+// view — Box/Folder fields and controls live below it instead of overlaid on
+// top of it.
+const PREVIEW_WIDTH = SCREEN_WIDTH - 32;
+const PREVIEW_HEIGHT = SCREEN_HEIGHT * 0.48;
+// PREVIEW_ASPECT (used for photo cropping) always reflects the full-size
+// preview, even though the box itself visually shrinks while the keyboard
+// is open — that shrink is cosmetic only, to keep Box/Folder visible above
+// the keyboard, not a change to what actually gets framed and captured.
+const PREVIEW_ASPECT = PREVIEW_WIDTH / PREVIEW_HEIGHT;
+const PREVIEW_HEIGHT_KEYBOARD = SCREEN_HEIGHT * 0.22;
+
+// The preview box crops the live feed to PREVIEW_ASPECT ("cover"), but
 // takePictureAsync() returns the full sensor image (usually 4:3), which is
-// wider than a typical phone screen — so the saved photo shows extra area
-// on the sides beyond what was actually framed in the preview. Center-crop
-// the photo to the same aspect ratio as the preview so the save matches
-// what she saw on screen.
-async function cropToScreenAspect(photo) {
+// wider than the preview box — so the saved photo shows extra area beyond
+// what was actually framed. Center-crop the photo to the same aspect ratio
+// as the preview so the save matches what she saw on screen.
+async function cropToPreviewAspect(photo) {
   const photoAspect = photo.width / photo.height;
   let cropWidth = photo.width;
   let cropHeight = photo.height;
 
-  if (photoAspect > SCREEN_ASPECT) {
-    cropWidth = Math.round(photo.height * SCREEN_ASPECT);
+  if (photoAspect > PREVIEW_ASPECT) {
+    cropWidth = Math.round(photo.height * PREVIEW_ASPECT);
   } else {
-    cropHeight = Math.round(photo.width / SCREEN_ASPECT);
+    cropHeight = Math.round(photo.width / PREVIEW_ASPECT);
   }
 
   const originX = Math.round((photo.width - cropWidth) / 2);
@@ -49,13 +63,26 @@ export default function ScannerScreen({ route, navigation }) {
   const [box, setBox] = useState('');
   const [folder, setFolder] = useState('');
   const [queueCount, setQueueCount] = useState(0);
-  const [showCamera, setShowCamera] = useState(false);
-  const [batchMode, setBatchMode] = useState(false);
+  const [failingCount, setFailingCount] = useState(0);
+  const [goMode, setGoMode] = useState(false);
   const [batchPhotos, setBatchPhotos] = useState([]);
+  const [capturing, setCapturing] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [project, setProject] = useState(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const cameraRef = useRef(null);
   const projectRef = useRef(null);
+  const isFocused = useIsFocused();
+
+  // Shrink the live preview while the keyboard is up so Box/Folder (and the
+  // controls below them) stay visible above it instead of being covered.
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   // Restore box/folder on mount
   useEffect(() => {
@@ -70,17 +97,34 @@ export default function ScannerScreen({ route, navigation }) {
     StorageService.saveBoxFolder({ box, folder });
   }, [box, folder]);
 
+  // Camera is now always live on this screen, so ask for permission up front
+  // instead of waiting for a "tap to scan" button.
+  useEffect(() => {
+    if (!permission?.granted) {
+      requestPermission();
+    }
+    // Mount-only by design: ask for camera permission once, not on every
+    // permission-object identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     loadState();
+    // Announce an upload failure the first time it happens (per item), not
+    // just when she thinks to tap the banner — the silent-failure incident
+    // ran for days because nothing ever spoke up on its own.
+    UploadQueueService.setOnNewFailure((item, err) => {
+      refreshQueue();
+      Alert.alert(
+        'A scan couldn’t upload',
+        `“${item.filename}” hit a problem syncing to Drive:\n\n${err.message}\n\n` +
+          'It stays saved on the phone and will keep retrying. The sync banner up top ' +
+          'shows details anytime.'
+      );
+    });
     const unsub = navigation.addListener('focus', () => {
       loadState();
       refreshQueue();
-    });
-    // Closing the camera on blur avoids resuming a stale native camera
-    // preview surface after navigating to Settings and back (observed as a
-    // black preview that only clears when the screen is turned off and on).
-    const unsubBlur = navigation.addListener('blur', () => {
-      setShowCamera(false);
     });
     const netUnsub = NetInfo.addEventListener(async (state) => {
       if (state.isConnected && projectRef.current) {
@@ -92,15 +136,15 @@ export default function ScannerScreen({ route, navigation }) {
           .then(() => refreshQueue());
       }
     });
-    return () => { unsub(); unsubBlur(); netUnsub(); };
+    return () => {
+      unsub();
+      netUnsub();
+      UploadQueueService.setOnNewFailure(null);
+    };
+    // loadState/refreshQueue are re-created per render; this effect is meant
+    // to run per navigation target only (they're invoked by its listeners).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
-
-  // Auto-open camera when returning from MarkupScreen via Keep Scanning
-  useEffect(() => {
-    if (!route.params?.autoCapture) return;
-    navigation.setParams({ autoCapture: undefined });
-    openCamera();
-  }, [route.params?.autoCapture]);
 
   async function loadState() {
     await StorageService.migrateProjectIfNeeded();
@@ -122,39 +166,50 @@ export default function ScannerScreen({ route, navigation }) {
   async function refreshQueue() {
     const queue = await StorageService.loadQueue();
     setQueueCount(queue.length);
+    setFailingCount(queue.filter((item) => item.lastError).length);
   }
 
-  async function openCamera() {
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) {
-        Alert.alert('Permission needed', 'Camera access is required to scan documents.');
-        return;
-      }
+  async function showQueueDetails() {
+    const queue = await StorageService.loadQueue();
+    const failing = queue.filter((item) => item.lastError);
+    if (failing.length === 0) {
+      Alert.alert('Waiting to sync', `${queue.length} file(s) queued, no errors yet — will upload once there's a connection.`);
+      return;
     }
-    setShowCamera(true);
-  }
-
-  async function handleCapture() {
-    await openCamera();
+    const lines = failing
+      .slice(0, 5)
+      .map((item) => `${item.filename}:\n${item.lastError}`)
+      .join('\n\n');
+    Alert.alert(
+      'Sync problem',
+      `${failing.length} of ${queue.length} file(s) are failing to upload:\n\n${lines}${failing.length > 5 ? '\n\n…and more.' : ''}`
+    );
   }
 
   async function takePicture() {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || capturing) return;
+    setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.9,
         base64: false,
       });
-      const cropped = await cropToScreenAspect(photo);
+      const cropped = await cropToPreviewAspect(photo);
 
-      if (batchMode) {
-        // Stay in the camera view for the next shot instead of jumping to Markup.
+      if (goMode) {
+        // Stay on this screen for the next shot instead of jumping to Markup.
         setBatchPhotos((prev) => [...prev, cropped.uri]);
         return;
       }
 
-      setShowCamera(false);
+      if (batchPhotos.length > 0) {
+        // GO MODE was turned off after already taking some photos — this
+        // regular-mode shot finishes that batch as its last, markable page,
+        // same as tapping Save would have.
+        await finishBatch(cropped.uri, batchPhotos);
+        return;
+      }
+
       navigation.navigate('Markup', {
         photoUri: cropped.uri,
         box: box.trim(),
@@ -163,6 +218,8 @@ export default function ScannerScreen({ route, navigation }) {
       });
     } catch (err) {
       Alert.alert('Error', 'Could not capture photo: ' + err.message);
+    } finally {
+      setCapturing(false);
     }
   }
 
@@ -172,18 +229,17 @@ export default function ScannerScreen({ route, navigation }) {
     }
   }
 
-  function cancelCamera() {
-    setShowCamera(false);
-    setBatchPhotos([]);
+  // Undoes only the most recently taken GO MODE photo, not the whole batch.
+  function retakeLast() {
+    setBatchPhotos((prev) => prev.slice(0, -1));
   }
 
-  // Only the last photo of a batch goes to Markup as the markable page —
-  // the rest are saved as unmarked pages ahead of it.
-  async function handleBatchDone() {
-    if (batchPhotos.length === 0) return;
-    setShowCamera(false);
-    const lastUri = batchPhotos[batchPhotos.length - 1];
-    const earlierUris = batchPhotos.slice(0, -1);
+  // Shared by "Save" (finishing on the last GO MODE photo itself) and a
+  // regular-mode shot taken after GO MODE was turned off (finishing on that
+  // new photo instead) — either way, only the last photo of the batch goes
+  // to Markup as the markable page; the rest are saved as unmarked pages
+  // ahead of it.
+  async function finishBatch(lastUri, earlierUris) {
     setBatchPhotos([]);
     try {
       const earlierPageResults = await Promise.all(earlierUris.map(buildPlainPageResult));
@@ -198,38 +254,11 @@ export default function ScannerScreen({ route, navigation }) {
     }
   }
 
-  if (showCamera) {
-    return (
-      <View style={{ flex: 1 }}>
-        <CameraView
-          ref={cameraRef}
-          style={{ flex: 1 }}
-          facing="back"
-        />
-        {batchMode && batchPhotos.length > 0 && (
-          <View style={styles.batchCountBadge}>
-            <Text style={styles.batchCountText}>
-              {batchPhotos.length} photo{batchPhotos.length !== 1 ? 's' : ''}
-            </Text>
-          </View>
-        )}
-        <View style={styles.cameraControls}>
-          <TouchableOpacity style={styles.cancelBtn} onPress={cancelCamera}>
-            <Text style={styles.cancelText}>✕</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.shutterBtn} onPress={takePicture}>
-            <View style={styles.shutterInner} />
-          </TouchableOpacity>
-          {batchMode && batchPhotos.length > 0 ? (
-            <TouchableOpacity style={styles.doneBatchBtn} onPress={handleBatchDone}>
-              <Text style={styles.doneBatchText}>Done</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 48 }} />
-          )}
-        </View>
-      </View>
-    );
+  function handleSaveBatch() {
+    if (batchPhotos.length === 0) return;
+    const lastUri = batchPhotos[batchPhotos.length - 1];
+    const earlierUris = batchPhotos.slice(0, -1);
+    finishBatch(lastUri, earlierUris);
   }
 
   return (
@@ -245,7 +274,7 @@ export default function ScannerScreen({ route, navigation }) {
               style={styles.projectBarMain}
               onPress={() => navigation.navigate('Settings')}
             >
-              <Text style={styles.projectBarText}>
+              <Text style={styles.projectBarText} numberOfLines={1}>
                 {project.archiveName ? `${project.name} - ${project.archiveName}` : project.name}
               </Text>
             </TouchableOpacity>
@@ -257,13 +286,21 @@ export default function ScannerScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Queue indicator */}
+        {/* Queue indicator — turns red on its own when uploads are actually
+            failing (the old version looked identical whether the queue was
+            waiting for signal or permanently stuck — the incident where tens
+            of files silently failed for days hid behind exactly that). */}
         {queueCount > 0 && (
-          <View style={styles.queueBanner}>
-            <Text style={styles.queueText}>
-              {queueCount} waiting to sync…
+          <TouchableOpacity
+            style={failingCount > 0 ? styles.queueBannerError : styles.queueBanner}
+            onPress={showQueueDetails}
+          >
+            <Text style={failingCount > 0 ? styles.queueTextError : styles.queueText}>
+              {failingCount > 0
+                ? `⚠ ${failingCount} of ${queueCount} can't upload — tap to see why`
+                : `${queueCount} waiting to sync… (tap for details)`}
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
 
         {/* Multi-page indicator */}
@@ -275,54 +312,109 @@ export default function ScannerScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Camera button */}
-        <View style={styles.center}>
-          <View style={styles.batchToggleRow}>
-            <Text style={styles.batchToggleLabel}>Take multiple photos before marking up</Text>
-            <Switch
-              value={batchMode}
-              onValueChange={setBatchMode}
-              trackColor={{ false: '#999', true: '#1565C0' }}
-              thumbColor="#fff"
-              ios_backgroundColor="#999"
+        {/* Live camera preview */}
+        <View
+          style={[
+            styles.previewBox,
+            keyboardVisible && { height: PREVIEW_HEIGHT_KEYBOARD },
+          ]}
+        >
+          {isFocused && permission?.granted ? (
+            <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
+          ) : (
+            <View style={styles.previewPlaceholder}>
+              <Text style={styles.previewPlaceholderText}>
+                {permission?.granted ? '' : 'Camera permission needed'}
+              </Text>
+              {!permission?.granted && (
+                <TouchableOpacity style={styles.grantBtn} onPress={requestPermission}>
+                  <Text style={styles.grantBtnText}>Allow Camera</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+          {batchPhotos.length > 0 && (
+            <View style={styles.batchCountBadge}>
+              <Text style={styles.batchCountText}>
+                {batchPhotos.length} photo{batchPhotos.length !== 1 ? 's' : ''}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Box + Folder — sit above the camera controls, still hard to miss */}
+        <View style={styles.fieldsBar}>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Box</Text>
+            <TextInput
+              style={styles.fieldInput}
+              value={box}
+              onChangeText={setBox}
+              keyboardType="default"
+              placeholder="—"
+              placeholderTextColor="#999"
+              returnKeyType="next"
             />
           </View>
-
-          <TouchableOpacity style={styles.cameraBtn} onPress={handleCapture}>
-            <Text style={styles.cameraBtnIcon}>📷</Text>
-            <Text style={styles.cameraBtnLabel}>Tap to Scan</Text>
-          </TouchableOpacity>
-
-          {/* Box + Folder — placed under the camera button so they're hard to miss */}
-          <View style={styles.fieldsBar}>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Box</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={box}
-                onChangeText={setBox}
-                keyboardType="default"
-                placeholder="—"
-                placeholderTextColor="#999"
-                returnKeyType="next"
-              />
-            </View>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Folder</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={folder}
-                onChangeText={setFolder}
-                keyboardType="default"
-                placeholder="—"
-                placeholderTextColor="#999"
-                returnKeyType="done"
-              />
-            </View>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Folder</Text>
+            <TextInput
+              style={styles.fieldInput}
+              value={folder}
+              onChangeText={setFolder}
+              keyboardType="default"
+              placeholder="—"
+              placeholderTextColor="#999"
+              returnKeyType="done"
+            />
           </View>
         </View>
 
-        {/* Settings */}
+        {/* GO MODE toggle — stay on this screen and keep shooting */}
+        <View style={styles.goModeRow}>
+          <Text style={styles.goModeLabel}>GO MODE</Text>
+          <Switch
+            value={goMode}
+            onValueChange={setGoMode}
+            trackColor={{ false: '#999', true: '#1565C0' }}
+            thumbColor="#fff"
+            ios_backgroundColor="#999"
+          />
+        </View>
+
+        {/* Shutter + batch controls */}
+        <View style={styles.cameraControls}>
+          {batchPhotos.length > 0 ? (
+            <TouchableOpacity style={styles.retakeBtn} onPress={retakeLast}>
+              <Ionicons name="arrow-undo-outline" size={18} color="#555" />
+              <Text style={styles.retakeText}>Retake</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 48 }} />
+          )}
+
+          <TouchableOpacity
+            style={styles.shutterBtn}
+            onPress={takePicture}
+            disabled={!permission?.granted || capturing}
+          >
+            <View style={styles.shutterInner}>
+              <Ionicons name="camera" size={28} color="#fff" />
+            </View>
+          </TouchableOpacity>
+
+          {batchPhotos.length > 0 ? (
+            <TouchableOpacity style={styles.saveBatchBtn} onPress={handleSaveBatch}>
+              <Text style={styles.saveBatchText}>Save</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 48 }} />
+          )}
+        </View>
+
+        {/* Settings — lower-right corner, clear of the "waiting to sync"
+            banner and the project bar. The project label above is also a
+            link to Settings. */}
         <TouchableOpacity
           style={styles.settingsBtn}
           onPress={() => navigation.navigate('Settings')}
@@ -336,28 +428,52 @@ export default function ScannerScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  previewBox: {
+    width: PREVIEW_WIDTH,
+    height: PREVIEW_HEIGHT,
+    alignSelf: 'center',
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#111',
+  },
+  previewPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  previewPlaceholderText: { color: '#fff', fontSize: 14 },
+  grantBtn: {
+    backgroundColor: '#1565C0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  grantBtnText: { color: '#fff', fontWeight: '700' },
   fieldsBar: {
     flexDirection: 'row',
-    marginTop: 40,
+    marginTop: 16,
     paddingHorizontal: 24,
-    gap: 20,
+    gap: 16,
     width: '100%',
   },
   fieldGroup: { flex: 1 },
   fieldLabel: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
     color: '#555',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 6,
+    marginBottom: 5,
   },
   fieldInput: {
     borderWidth: 2,
     borderColor: '#bbb',
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 22,
+    borderRadius: 8,
+    padding: 11,
+    fontSize: 18,
+    fontWeight: '700',
     color: '#222',
     backgroundColor: '#fafafa',
   },
@@ -369,6 +485,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#FFE0B2',
   },
   queueText: { fontSize: 13, color: '#E65100', textAlign: 'center' },
+  queueBannerError: {
+    backgroundColor: '#B71C1C',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#7F0000',
+  },
+  queueTextError: { fontSize: 13, color: '#FFFFFF', fontWeight: '700', textAlign: 'center' },
   pageBanner: {
     backgroundColor: '#E8EAF6',
     paddingVertical: 8,
@@ -382,71 +506,49 @@ const styles = StyleSheet.create({
     color: '#1A237E',
     textAlign: 'center',
   },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  batchToggleRow: {
+  goModeRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: CONTROL_ROW_BOTTOM + CONTROL_ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 24,
+    justifyContent: 'center',
     gap: 12,
   },
-  batchToggleLabel: {
-    flex: 1,
-    fontSize: 14,
-    color: '#555',
-    textAlign: 'right',
-  },
-  cameraBtn: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: '#1565C0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  cameraBtnIcon: { fontSize: 64 },
-  cameraBtnLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginTop: 8,
+  goModeLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#333',
+    letterSpacing: 0.5,
   },
   settingsBtn: {
     position: 'absolute',
-    top: 92,
+    bottom: 16,
     right: 16,
   },
-  settingsIcon: { fontSize: 24 },
+  settingsIcon: { fontSize: 26 },
   cameraControls: {
     position: 'absolute',
-    bottom: 48,
     left: 0,
     right: 0,
+    bottom: CONTROL_ROW_BOTTOM,
+    height: CONTROL_ROW_HEIGHT,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  cancelBtn: {
-    width: 48,
+  retakeBtn: {
+    width: 64,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  cancelText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  retakeText: { color: '#555', fontSize: 11, fontWeight: '600', marginTop: 2 },
   batchCountBadge: {
     position: 'absolute',
-    top: 56,
+    top: 12,
     alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 16,
@@ -454,7 +556,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   batchCountText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  doneBatchBtn: {
+  saveBatchBtn: {
     width: 64,
     height: 48,
     borderRadius: 24,
@@ -462,43 +564,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  doneBatchText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  saveBatchText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   shutterBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     borderWidth: 4,
-    borderColor: '#fff',
+    borderColor: '#1565C0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   shutterInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#fff',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#1565C0',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   projectBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#E8EAF6',
     paddingTop: 56,
-    paddingBottom: 10,
+    paddingBottom: 12,
     paddingLeft: 16,
-    paddingRight: 48,
+    paddingRight: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#C5CAE9',
   },
   projectBarMain: { flex: 1 },
   projectBarText: {
-    fontSize: 13,
+    fontSize: 18,
     color: '#1A237E',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   driveLinkText: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#1565C0',
-    fontWeight: '600',
+    fontWeight: '700',
     marginLeft: 12,
   },
 });

@@ -36,7 +36,7 @@ don't change per-document.
 | `collection` | string | yes (may be `''`) | `"Good Poems"` | The Collection name (required field) |
 | `archive_name` | string | yes (may be `''`) | `"Five Forks"` | The Archive Name (optional field) |
 | `captured_at` | ISO 8601 timestamp | yes | `"2026-07-05T22:14:03.912Z"` | Set at save time, not at photo-capture time |
-| `temp_filename` | string | yes | `"Good Poems - Five Forks - Box 3 - Folder 2 - 000004 - OMG.pdf"` | The filename the PDF was uploaded as |
+| `temp_filename` | string | yes | `"Five Forks - Good Poems - 3 - 2 - 000004 - OMG.pdf"` | The filename the PDF was uploaded as |
 | `page_count` | string of an integer | yes | `"3"` | Number of photographed pages in this PDF |
 | `omg_pages` | JSON array string (0-indexed) | yes | `"[2]"` | Which pages (by index) were OMG-flagged |
 | `unmarked_backup_pages` | JSON array string (0-indexed) | yes | `"[0]"` | Which pages had markup — an unmarked duplicate of each such page is appended at the end of the PDF, and this lists which original-page indexes those backups correspond to |
@@ -65,7 +65,7 @@ Same practical shape, worth knowing it isn't written the same way.
   "collection": "Good Poems",
   "archive_name": "Five Forks",
   "captured_at": "2026-07-05T22:14:03.912Z",
-  "temp_filename": "Good Poems - Five Forks - Box 3 - Folder 2 - 000004 - OMG.pdf",
+  "temp_filename": "Five Forks - Good Poems - 3 - 2 - 000004 - OMG.pdf",
   "page_count": "3",
   "omg_pages": "[2]",
   "unmarked_backup_pages": "[0]",
@@ -87,9 +87,22 @@ Drive file fields, available from the same `files.get`/`files.list` call
 
 ## Constraints worth knowing for UI/filtering design
 
-- Drive `properties` values are capped at ~124 bytes each — long typed
-  comments or many tags could theoretically hit this, though nothing in the
-  app currently truncates or warns about it.
+- Drive `properties` values are capped at **124 bytes each (UTF-8, key +
+  value combined)**. Values that would exceed it are split losslessly across
+  **continuation properties**: the first piece stays under the original key,
+  the rest under `key~1`, `key~2`, … (e.g. `typed_comments`,
+  `typed_comments~1`). Readers must reassemble by concatenating the
+  contiguous run — both this app and review-ui do this via the shared
+  `src/utils/driveProps.js` (kept byte-identical with
+  `review-ui/src/lib/driveProps.js`; each repo's tests fail if the copies
+  drift). Values that fit are stored unchanged, so most files look exactly
+  like the example above. Historical note: before 2026-07-09 this app
+  *truncated* oversized values with a trailing `…`, which could cut JSON
+  fields mid-structure — review-ui salvages what it can from those and logs
+  a warning when it meets one.
+- Drive also caps a file at ~30 custom properties. `packProps` throws a
+  descriptive error rather than exceed it (a file whose comment/tag history
+  is that big needs a sidecar-document design — an open item, not built).
 - `properties` are only queryable via Drive API field selection, not via
   Drive's full-text search — a metadata browser will need to fetch and filter
   client-side (or maintain its own index) rather than relying on Drive search
